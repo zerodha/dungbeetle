@@ -1,0 +1,13 @@
+---
+broker: broker
+default_queue: default_queue
+result_backend: result_backend
+results_expire_in: 123456
+amqp:
+  binding_key: binding_key
+  exchange: exchange
+  exchange_type: exchange_type
+  prefetch_count: 123
+  queue_binding_args:
+    image-type: png
+    x-match: any

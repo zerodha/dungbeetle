@@ -1,0 +1,10 @@
+-- test.sql.sample
+
+-- name: get_profit_summary
+SELECT SUM(amount) AS total, entry_date FROM entries GROUP BY entry_date WHERE user_id = ?;
+
+-- name: get_profit_entries
+SELECT * FROM entries WHERE user_id = ?;
+
+-- name: get_profit_entries_by_date
+SELECT * FROM entries WHERE user_id = ? AND timestamp > ? and timestamp < ?;

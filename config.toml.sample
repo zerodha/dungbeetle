@@ -1,0 +1,46 @@
+# Redis addresses are denoted as: redis://password@host:port/db_num
+
+[machinery]
+broker_address = "redis://127.0.0.1:6379/1"
+
+[result_backend]
+# Although Machinery supports several result backends
+# here, only Redis is supported.
+# This is where rediSQL databases for each job is created
+# with the 'results' table that'll have the results of 
+# the orignal SQL query tasks.
+
+address = "redis://127.0.0.1:6379/0"
+max_idle = 20
+max_active = 50
+
+# Timeouts are in seconds.
+connect_timeout = 5
+read_timeout = 5
+write_timeout = 5
+
+# Name for the rediSQL results database. %s will be substituted by the job ID.
+# Each job gets its own database.
+results_db = "sqldb_%s"
+
+# Name of the rediSQL table in which results will be wrtten.
+# This table is created inside the above database.
+results_table = "results"
+
+# TTL in seconds after which a job's results DB disappears from Redis.
+results_ttl = 3600
+
+[db]
+# This is the original database against which SQL job queries
+# are executed. type can be 'mysql' or 'postgresql'
+
+type = "mysql"
+host = "localhost"
+port = 3306
+name = "my_db"
+username = "root"
+password = ""
+
+max_idle = 10
+max_active = 100
+connect_timeout = 10 # seconds

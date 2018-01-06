@@ -20,6 +20,9 @@ Consider an application that has a very large SQL database. When there are sever
 Once the reports are generated, it's only natural for users to further transform the results by slicing, sorting and filtering, generating additional queries to the primary database. To offset this load, we send the results into an in-memory SQL database (Redis 4.0 + rediSQL, which is basically an in-memory, non-blocking, SQLite3 database running as a server inside Redis). Once the results of a particular query are available in this Redis instance, it's then possible to offer users fast transformations on their reports without further delays, with added SQLite 3 query goodness. These results are of course ephemeral and can be thrown away or expired.
 
 
+![sql-job-server svg](https://user-images.githubusercontent.com/547147/34641268-6b8310ca-f327-11e7-95f2-bd2b6308586f.png)
+
+
 ## Concepts
 #### Task
 A task is a named SQL job is loaded into the server on startup. Tasks are defined in .sql files in the simple [goyesql](https://github.com/nleof/goyesql) format. Such queries are self-contained, preparable, and produce the desired final output with neatly named columns. They can take arbitrary positional arguments for execution.

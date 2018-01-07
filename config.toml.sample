@@ -3,13 +3,19 @@
 [machinery]
 broker_address = "redis://127.0.0.1:6379/1"
 
-[result_backend]
-# Although Machinery supports several result backends
-# here, only Redis is supported.
-# This is where rediSQL databases for each job is created
-# with the 'results' table that'll have the results of 
-# the orignal SQL query tasks.
+# This is where Machinery stores it's job states.
+# In Machinery's terminology, this is its "result backend"
+# and is not to be confused with the SQL Jobber's 'result_backend'
+# where SQL Jobber stores results of jobs, bypassing machinery.
+state_address = "redis://127.0.0.1:6379/1"
 
+[result_backend]
+# This is where the results of SQL query jobs are saved.
+# Currently, only "redis" is supported, where, in the given Redis
+# instance, a rediSQL database with a results table is created
+# for every completed job.
+
+type = "redis"
 address = "redis://127.0.0.1:6379/0"
 max_idle = 20
 max_active = 50

@@ -11,12 +11,12 @@ import (
 
 	machinery "github.com/RichardKnop/machinery/v1"
 	"github.com/RichardKnop/machinery/v1/config"
-	"github.com/garyburd/redigo/redis"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
 	"github.com/nleof/goyesql"
 	flag "github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"github.com/zerodhatech/sql-jobber/backends"
 
 	// MySQL and Postgres drivers.
 	_ "github.com/go-sql-driver/mysql"
@@ -32,9 +32,7 @@ const (
 )
 
 type constants struct {
-	ResultsDB    string
-	ResultsTable string
-	ResultsTTL   int
+	ResultsDB string
 }
 
 type taskFunc func(string, string, ...interface{}) (int64, error)
@@ -42,21 +40,19 @@ type taskFunc func(string, string, ...interface{}) (int64, error)
 // Queries represents a map of prepared SQL statements.
 type Queries map[string]Query
 
-// Query represents an SQL query with its prepared
-// and raw forms. taskName,
+// Query represents an SQL query with its prepared and raw forms.
 type Query struct {
 	Stmt *sql.Stmt `json:"-"`
 	Raw  string    `json:"raw"`
 }
 
-// Jobber represents a collection of the tooling
-// required to run a job server.
+// Jobber represents a collection of the tooling required to run a job server.
 type Jobber struct {
-	Queries   Queries
-	Machinery *machinery.Server
-	Worker    *machinery.Worker
-	DB        *sql.DB
-	Redis     *redis.Pool
+	Queries      Queries
+	Machinery    *machinery.Server
+	Worker       *machinery.Worker
+	DB           *sql.DB
+	RsultBackend backends.ResultBackend
 
 	Constants constants
 }
@@ -72,18 +68,6 @@ type DBConfig struct {
 	MaxIdleConns   int           `mapstructure:"max_idle"`
 	MaxActiveConns int           `mapstructure:"max_active"`
 	ConnectTimeout time.Duration `mapstructure:"connect_timeout"`
-}
-
-// RedisConfig represents a Redis instance's configuration.
-type RedisConfig struct {
-	Address        string        `mapstructure:"address"`
-	Password       string        `mapstructure:"password"`
-	DB             int           `mapstructure:"db"`
-	MaxIdleConns   int           `mapstructure:"max_idle"`
-	MaxActiveConns int           `mapstructure:"max_active"`
-	ConnectTimeout time.Duration `mapstructure:"connect_timeout"`
-	ReadTimeout    time.Duration `mapstructure:"read_timeout"`
-	WriteTimeout   time.Duration `mapstructure:"write_timeout"`
 }
 
 // Global container.
@@ -158,45 +142,6 @@ func connectDB(cfg DBConfig) (*sql.DB, error) {
 	return db, nil
 }
 
-// connectRedis creates and returns a Redis connection pool.
-func connectRedis(cfg RedisConfig) (*redis.Pool, error) {
-	pool := &redis.Pool{
-		Wait:      true,
-		MaxActive: cfg.MaxActiveConns,
-		MaxIdle:   cfg.MaxActiveConns,
-		Dial: func() (redis.Conn, error) {
-			c, err := redis.Dial(
-				"tcp",
-				cfg.Address,
-				redis.DialPassword(cfg.Password),
-				redis.DialConnectTimeout(time.Second*cfg.ConnectTimeout),
-				redis.DialReadTimeout(time.Second*cfg.ReadTimeout),
-				redis.DialWriteTimeout(time.Second*cfg.WriteTimeout),
-			)
-
-			if err != nil {
-				return nil, err
-			} else if cfg.DB != 0 {
-				if _, err := c.Do("SELECT", cfg.DB); err != nil {
-					return nil, err
-				}
-			}
-
-			return c, err
-		},
-	}
-
-	// Do a preliminary check.
-	c := pool.Get()
-	defer c.Close()
-
-	if _, err := c.Do("PING"); err != nil {
-		log.Fatalf("Error connecting to Redis: %v", err)
-	}
-
-	return pool, nil
-}
-
 // loadSQLqueries loads SQL queries from all the .sql
 // files in a given directory.
 func loadSQLqueries(db *sql.DB, dir string) (Queries, error) {
@@ -237,7 +182,7 @@ func loadSQLqueries(db *sql.DB, dir string) (Queries, error) {
 }
 
 // connectJobServer creates and returns a Machinery job server
-// with the given SQL queries registered as tasks.
+// while registering the given SQL queries as tasks.
 func connectJobServer(cfg *config.Config, queries Queries) (*machinery.Server, error) {
 	server, err := machinery.NewServer(cfg)
 	if err != nil {
@@ -273,14 +218,12 @@ func main() {
 
 	var (
 		dbConf DBConfig
-		rdConf RedisConfig
+		rdConf backends.RedisConfig
 		err    error
 	)
 
 	jobber.Constants = constants{
-		ResultsDB:    viper.GetString("result_backend.results_db"),
-		ResultsTable: viper.GetString("result_backend.results_table"),
-		ResultsTTL:   viper.GetInt("result_backend.results_ttl"),
+		ResultsDB: viper.GetString("result_backend.results_db"),
 	}
 
 	// Connect to the database.
@@ -291,22 +234,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Connect to Redis.
-	rdConf = RedisConfig{
-		ConnectTimeout: time.Second * viper.GetDuration("result_backend.connect_timeout"),
-		ReadTimeout:    time.Second * viper.GetDuration("result_backend.read_timeout"),
-		WriteTimeout:   time.Second * viper.GetDuration("result_backend.write_timeout"),
-		MaxIdleConns:   viper.GetInt("result_backend.max_idle"),
-		MaxActiveConns: viper.GetInt("result_backend.max_active"),
-	}
+	// Setup the rediSQL results backend.
+	viper.UnmarshalKey("result_backend", &rdConf)
 	rdConf.Address, rdConf.Password, rdConf.DB, err =
 		machinery.ParseRedisURL(viper.GetString("result_backend.address"))
 	if err != nil {
-		log.Fatalf("Incorrect Redis backend url: '%s'", viper.GetString("result_backend.address"))
+		log.Fatalf("Incorrect Redis backend URL: '%s'", viper.GetString("result_backend.address"))
 	}
 
-	log.Printf("Connecting to result backend Redis %s @ db = %d", rdConf.Address, rdConf.DB)
-	jobber.Redis, err = connectRedis(rdConf)
+	jobber.RsultBackend, err = backends.NewRediSQL(rdConf)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -334,7 +270,7 @@ func main() {
 	jobber.Machinery, err = connectJobServer(&config.Config{
 		Broker:          viper.GetString("machinery.broker_address"),
 		DefaultQueue:    viper.GetString("queue-name"),
-		ResultBackend:   viper.GetString("result_backend.address"),
+		ResultBackend:   viper.GetString("machinery.state_address"),
 		ResultsExpireIn: viper.GetInt("result_backend.results_ttl"),
 	}, jobber.Queries)
 	if err != nil {

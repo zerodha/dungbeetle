@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sync"
@@ -38,7 +39,16 @@ func executeTask(jobID, taskName string, args []interface{}, q *Query) (int64, e
 	jobContexts[jobID] = cancel
 	jobMutex.Unlock()
 
-	rows, err := q.Stmt.QueryContext(ctx, args...)
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	// Prepared query.
+	if q.Stmt != nil {
+		rows, err = q.Stmt.QueryContext(ctx, args...)
+	} else {
+		rows, err = jobber.DB.QueryContext(ctx, q.Raw, args...)
+	}
 	if err != nil {
 		if err == context.Canceled {
 			return numRows, errors.New("The job was canceled")

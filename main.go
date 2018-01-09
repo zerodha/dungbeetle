@@ -13,7 +13,7 @@ import (
 	"github.com/RichardKnop/machinery/v1/config"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
-	"github.com/nleof/goyesql"
+	"github.com/knadh/goyesql"
 	flag "github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"github.com/zerodhatech/sql-jobber/backends"
@@ -77,8 +77,8 @@ func init() {
 	// Command line flags.
 	flagSet := flag.NewFlagSet("config", flag.ContinueOnError)
 	flagSet.Usage = func() {
-		fmt.Println("SQL Jobber")
-		fmt.Println(flagSet.FlagUsages())
+		log.Println("SQL Jobber")
+		log.Println(flagSet.FlagUsages())
 		os.Exit(0)
 	}
 
@@ -161,19 +161,27 @@ func loadSQLqueries(db *sql.DB, dir string) (Queries, error) {
 		q := goyesql.MustParseFile(f)
 
 		for name, s := range q {
+			var stmt *sql.Stmt
+
 			// Query already exists.
 			if _, ok := queries[string(name)]; ok {
 				return nil, fmt.Errorf("Duplicate query '%s' (%s)", name, f)
 			}
 
-			// Prepare the statement.
-			stmt, err := db.Prepare(s)
-			if err != nil {
-				return nil, fmt.Errorf("Error preparing SQL query '%s': %v", name, err)
+			// Prepare the statement?
+			if _, ok := s.Tags["raw"]; !ok {
+				stmt, err = db.Prepare(s.Query)
+				if err != nil {
+					return nil, fmt.Errorf("Error preparing SQL query '%s': %v", name, err)
+				}
+
+				log.Print("-- ", name)
+			} else {
+				log.Print("-- ", name, " (raw)")
 			}
 
-			queries[string(name)] = Query{Stmt: stmt,
-				Raw: s,
+			queries[name] = Query{Stmt: stmt,
+				Raw: s.Query,
 			}
 		}
 	}
@@ -201,8 +209,6 @@ func connectJobServer(cfg *config.Config, queries Queries) (*machinery.Server, e
 				return executeTask(jobID, taskName, args, &q)
 			}
 		}(query))
-
-		log.Printf("-- %s", name)
 	}
 
 	return server, nil
@@ -211,7 +217,7 @@ func connectJobServer(cfg *config.Config, queries Queries) (*machinery.Server, e
 func main() {
 	// Display version.
 	if viper.GetBool("version") {
-		fmt.Printf("Commit: %v\nBuild: %v", buildVersion, buildDate)
+		log.Printf("Commit: %v\nBuild: %v", buildVersion, buildDate)
 		return
 	}
 	log.Printf("Starting server '%s'", viper.GetString("worker-name"))

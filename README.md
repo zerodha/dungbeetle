@@ -25,7 +25,7 @@ Once the reports are generated, it's only natural for users to further transform
 
 ## Concepts
 #### Task
-A task is a named SQL job is loaded into the server on startup. Tasks are defined in .sql files in the simple [goyesql](https://github.com/nleof/goyesql) format. Such queries are self-contained, preparable, and produce the desired final output with neatly named columns. They can take arbitrary positional arguments for execution.
+A task is a named SQL job is loaded into the server on startup. Tasks are defined in .sql files in the simple [goyesql](https://github.com/nleof/goyesql) format. Such queries are self-contained and produce the desired final output with neatly named columns. They can take arbitrary positional arguments for execution.
 
 Example:
 ```sql
@@ -39,9 +39,14 @@ SELECT * FROM entries WHERE user_id = ?;
 
 -- name: get_profit_entries_by_date
 SELECT * FROM entries WHERE user_id = ? AND timestamp > ? and timestamp < ?;
+
+-- name: get_profit_entries_by_date
+-- raw: 1
+-- This query will not be prepared (raw=1)
+SELECT * FROM entries WHERE user_id = ? AND timestamp > ? and timestamp < ?;
 ```
 
-Here, when the server starts, the queries `get_profit_summary` and `get_profit_entries` are registered automatically as tasks. Internally, the server validates and prepares these SQL statements. `?` are MySQL value placholders. For Postgres, the placeholders are `$1, $2 ...`
+Here, when the server starts, the queries `get_profit_summary` and `get_profit_entries` are registered automatically as tasks. Internally, the server validates and prepares these SQL statements (unless `raw: 1`). `?` are MySQL value placholders. For Postgres, the placeholders are `$1, $2 ...`
 
 #### Job
 A job is an instance of a named task that has been queued to run. Each job has an ID that can be used to track its status. If an ID is not passed explicitly, it is generated internally and returned. These IDs needn not be unique, but only one job with a certain ID can be running at any given point. For the next job with the same ID to be scheduled, the previous job has to finish execution. Using non-unique IDs like this is useful in cases where users can be prevented from sending multiple requests for the same reports, like in our usecases.

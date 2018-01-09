@@ -357,6 +357,12 @@
 			"revisionTime": "2017-12-21T06:53:02Z"
 		},
 		{
+			"checksumSHA1": "CKVLgI6jzoKSvQmf8dLmng6I/g4=",
+			"path": "github.com/knadh/goyesql",
+			"revision": "bbbe5d0c5a62f6b1c045a8cadf9b430a7d661d35",
+			"revisionTime": "2018-01-09T08:30:34Z"
+		},
+		{
 			"checksumSHA1": "IfZcD4U1dtllJKlPNeD2aU4Jn98=",
 			"path": "github.com/lib/pq",
 			"revision": "83612a56d3dd153a94a629cd64925371c9adad78",
@@ -379,12 +385,6 @@
 			"path": "github.com/mitchellh/mapstructure",
 			"revision": "06020f85339e21b2478f756a78e295255ffa4d6a",
 			"revisionTime": "2017-10-17T17:18:08Z"
-		},
-		{
-			"checksumSHA1": "RF1zk4G7JKH7TlEnpd2p7GmiAvI=",
-			"path": "github.com/nleof/goyesql",
-			"revision": "11d8984770c87d35a00c9254bd1c363d41a6774f",
-			"revisionTime": "2016-07-25T19:18:22Z"
 		},
 		{
 			"checksumSHA1": "H5wlR62j1Ru5rKRDM9eCb6iUKLA=",

@@ -18,31 +18,28 @@ const (
 // For example: parsedLine{Type=lineTag, Value="foo"}
 type parsedLine struct {
 	Type  int
+	Tag   string
 	Value string
 }
 
 var (
-	reTag     *regexp.Regexp
-	reComment *regexp.Regexp
-)
+	// -- tag: $value
+	reTag = regexp.MustCompile("^\\s*--\\s*(.+)\\s*:\\s*(.+)")
 
-func init() {
-	// -- name: $tag
-	reTag = regexp.MustCompile("^\\s*--\\s*name\\s*:\\s*(.+)")
 	// -- $comment
 	reComment = regexp.MustCompile("^\\s*--\\s*(.+)")
-}
+)
 
 func parseLine(line string) parsedLine {
 	line = strings.Trim(line, " ")
 
 	if line == "" {
-		return parsedLine{lineBlank, ""}
-	} else if matches := reTag.FindStringSubmatch(line); len(matches) > 0 {
-		return parsedLine{lineTag, matches[1]}
+		return parsedLine{lineBlank, "", ""}
+	} else if matches := reTag.FindStringSubmatch(line); len(matches) > 1 {
+		return parsedLine{lineTag, matches[1], matches[2]}
 	} else if matches := reComment.FindStringSubmatch(line); len(matches) > 0 {
-		return parsedLine{lineComment, matches[1]}
+		return parsedLine{lineComment, "", matches[1]}
 	}
 
-	return parsedLine{lineQuery, line}
+	return parsedLine{lineQuery, "", line}
 }

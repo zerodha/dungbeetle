@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -261,14 +260,19 @@ func resTableSchema(resTable string, cols []string, colTypes []*sql.ColumnType) 
 		typ    = ""
 	)
 	for i := 0; i < len(cols); i++ {
-		switch colTypes[i].ScanType().Kind() {
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		switch colTypes[i].DatabaseTypeName() {
+		case "INT2", "INT4", "INT8", // Postgres
+			"TINYINT", "SMALLINT", "INT", "MEDIUMINT", "BIGINT": // MySQL
 			typ = "INTEGER"
-		case reflect.Float32, reflect.Float64:
+		case "FLOAT4", "FLOAT8", // Postgres
+			"DECIMAL", "FLOAT", "DOUBLE", "NUMERIC": // MySQL
 			typ = "REAL"
 		default:
 			typ = "TEXT"
+		}
+
+		if nullable, ok := colTypes[i].Nullable(); ok && !nullable {
+			typ += " NOT NULL"
 		}
 
 		fields[i] = cols[i] + " " + typ

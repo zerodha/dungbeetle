@@ -78,7 +78,7 @@ $ redis-cli
 ```
 
 ## Installation
-#### 1) Install
+### 1) Install
 `go get github.com/zerodhatech/sql-job-server`
 
 This will install the binary `sql-jobber` to `$GOPATH/bin`. If you do not have Go installed, you can download a pre-compiled binary from the releases page.

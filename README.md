@@ -1,13 +1,13 @@
 # SQL Jobber
+> This is a highly experimental alpha version. Use with care.
+
 A highly opinionated, distributed job-queue built specifically for defering and executing SQL query jobs (reads). 
 
 - Standalone server that exposes HTTP APIs for managing jobs (list, post, status check, cancel jobs)
 - Reads SQL queries from .sql files and registers them as tasks ready to be queued
 - Supports MySQL and PostgreSQL
 - Written in Go and built on top of [Machinery](https://github.com/RichardKnop/machinery). Supports multi-process, multi-threaded, asynchronous distributed job queueing via a common broker backend (Redis, AMQP etc.)
-- Results from jobs are written into a Redis + [rediSQL](https://github.com/RedBeardLab/rediSQL) that can be further queried and transformed without affecting the main SQL database
-
-**Requirements**: Redis 4.0+ with the [rediSQL](https://github.com/RedBeardLab/rediSQL) module
+- Results from jobs are written into an in-memory SQL Database ([rediSQL](https://github.com/RedBeardLab/rediSQL), [rqlite](https://github.com/rqlite/rqlite)) that can be further queried and transformed without affecting the main SQL database
 
 
 ## Why?
@@ -17,10 +17,10 @@ SQL Jobber was built for certain specific use cases after solutions like Celery 
 Consider an application that has a very large SQL database. When there are several thousand concurrent users requesting reports from the database simultaneously, every second of IO delay in query execution locks up the application's threads, snowballing and overloading the application. Instead, we defer every single report request into a job queue, there by immediately freeing up the front end application. The reports are presented to users as they're executed (frontend polls the job's status and prevents the user from sending any more queries). Fixed SQL Jobber serviers and worker threads also act as traffic control and prevent our primary databases from being indundated with requests.
 
 ##### Usecase 2
-Once the reports are generated, it's only natural for users to further transform the results by slicing, sorting and filtering, generating additional queries to the primary database. To offset this load, we send the results into an in-memory SQL database (Redis 4.0 + rediSQL, which is basically an in-memory, non-blocking, SQLite3 database running as a server inside Redis). Once the results of a particular query are available in this Redis instance, it's then possible to offer users fast transformations on their reports without further delays, with added SQLite 3 query goodness. These results are of course ephemeral and can be thrown away or expired.
+Once the reports are generated, it's only natural for users to further transform the results by slicing, sorting and filtering, generating additional queries to the primary database. To offset this load, we send the results into an in-memory SQL database (Redis 4.0 + rediSQL or rqlite, which are in-memory SQLite3 databases). Once the results of a particular query are available in the in-memory instance, it's then possible to offer users fast transformations on their reports with added SQLite 3 query goodness. These results are of course ephemeral and can be thrown away or expired.
 
 
-![sql-job-server svg](https://user-images.githubusercontent.com/547147/34641268-6b8310ca-f327-11e7-95f2-bd2b6308586f.png)
+![sql-job-server png](https://user-images.githubusercontent.com/547147/34641268-6b8310ca-f327-11e7-95f2-bd2b6308586f.png)
 
 
 ## Concepts
@@ -52,11 +52,13 @@ Here, when the server starts, the queries `get_profit_summary` and `get_profit_e
 A job is an instance of a named task that has been queued to run. Each job has an ID that can be used to track its status. If an ID is not passed explicitly, it is generated internally and returned. These IDs needn not be unique, but only one job with a certain ID can be running at any given point. For the next job with the same ID to be scheduled, the previous job has to finish execution. Using non-unique IDs like this is useful in cases where users can be prevented from sending multiple requests for the same reports, like in our usecases.
 
 #### Result
-The results from an SQL query job are written into a Redis + rediSQL instance from where they can be queried and accessed like a normal SQL database. This is configured in the configuration file.
+The results from an SQL query job are written into an the in-memory instance from where they can be queried and accessed like a normal SQL database. This is configured in the configuration file. The schema of the `results` table is automatically generated from the results of the original SQL query and consists of native SQLite 3 data types.
 
-The results are stored in a table (`results` by default) in a rediSQL "database" (appears as a key in Redis. Not to be confused with Redis' numerical databases) where the database name is the job ID with an optional prefix specified in the configuration file.
+##### Redis 4.0 + rediSQL
+If the results backend is rediSQL, a "database" is created for each job, with a "results" table inside it that can be queried. Cache expiry can then be Redis TTLs set on these "database" keys.
 
-The schema of the `results` table is automatically generated from the results of the original SQL query and consists of native SQLite 3 data types. For more info, check out [rediSQL](http://redbeardlab.tech/rediSQL/).
+##### rqlite
+If the results backend is rqlite, the results are written into tables named after the jobs. For cache expiries, a ttl mechanism implemented in the backend.
 
 Example:
 ```shell
@@ -85,8 +87,6 @@ This will install the binary `sql-jobber` to `$GOPATH/bin`. If you do not have G
 
 ### 2) Configure
 Copy the `config.toml.sample` file as `config.toml` somewhere and edit the configuration values.
-
-Make sure the Redis instance specified in the `result_backend` section of the configuration file has the [rediSQL](http://redbeardlab.tech/rediSQL/) module loaded.
 
 ### 3) Setup tasks
 Write your SQL query tasks in `.sql` files in the `goyesql` format (as shown in the examples earlier) and put them in a directory somewhere.

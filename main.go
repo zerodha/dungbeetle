@@ -48,11 +48,11 @@ type Query struct {
 
 // Jobber represents a collection of the tooling required to run a job server.
 type Jobber struct {
-	Queries      Queries
-	Machinery    *machinery.Server
-	Worker       *machinery.Worker
-	DB           *sql.DB
-	RsultBackend backends.ResultBackend
+	Queries       Queries
+	Machinery     *machinery.Server
+	Worker        *machinery.Worker
+	DB            *sql.DB
+	ResultBackend backends.ResultBackend
 
 	Constants constants
 }
@@ -108,7 +108,7 @@ func init() {
 	viper.SetConfigFile(viper.GetString("config"))
 	err := viper.ReadInConfig()
 	if err != nil {
-		log.Fatalf("Error reading config: %s", err)
+		log.Fatalf("error reading config: %s", err)
 	}
 }
 
@@ -217,14 +217,13 @@ func connectJobServer(cfg *config.Config, queries Queries) (*machinery.Server, e
 func main() {
 	// Display version.
 	if viper.GetBool("version") {
-		log.Printf("Commit: %v\nBuild: %v", buildVersion, buildDate)
+		log.Printf("commit: %v\nBuild: %v", buildVersion, buildDate)
 		return
 	}
-	log.Printf("Starting server '%s'", viper.GetString("worker-name"))
+	log.Printf("starting server '%s'", viper.GetString("worker-name"))
 
 	var (
 		dbConf DBConfig
-		rdConf backends.RedisConfig
 		err    error
 	)
 
@@ -234,31 +233,52 @@ func main() {
 
 	// Connect to the database.
 	viper.UnmarshalKey("db", &dbConf)
-	log.Printf("Connecting to DB %s@%s:%d", dbConf.DBname, dbConf.Host, dbConf.Port)
+	log.Printf("connecting to DB %s@%s:%d", dbConf.DBname, dbConf.Host, dbConf.Port)
 	jobber.DB, err = connectDB(dbConf)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Setup the rediSQL results backend.
-	viper.UnmarshalKey("result_backend", &rdConf)
-	rdConf.Address, rdConf.Password, rdConf.DB, err =
-		machinery.ParseRedisURL(viper.GetString("result_backend.address"))
-	if err != nil {
-		log.Fatalf("Incorrect Redis backend URL: '%s'", viper.GetString("result_backend.address"))
-	}
+	// Setup the results backend.
+	backendType := viper.GetString("result_backend.type")
+	switch backendType {
+	case "redisql":
+		var cfg backends.RedisConfig
+		viper.UnmarshalKey("result_backend", &cfg)
+		cfg.Address, cfg.Password, cfg.DB, err =
+			machinery.ParseRedisURL(viper.GetString("result_backend.address"))
+		if err != nil {
+			log.Fatalf("incorrect Redis backend URL: '%s'",
+				viper.GetString("result_backend.address"))
+		}
 
-	jobber.RsultBackend, err = backends.NewRediSQL(rdConf)
-	if err != nil {
-		log.Fatal(err)
+		jobber.ResultBackend, err = backends.NewRediSQL(cfg)
+		if err != nil {
+			log.Fatalf("error initializing result backend: %v", err)
+		}
+		log.Printf("result backend is '%s': %v", backendType, cfg.Address)
+	case "rqlite":
+		address := viper.GetString("result_backend.address")
+		jobber.ResultBackend, err = backends.NewRqlite(backends.RqliteConfig{
+			Address:      address,
+			MaxIdleConns: viper.GetInt("result_backend.max_idle"),
+			ResultsTTL:   viper.GetDuration("result_backend.results_ttl") * time.Second,
+			Timeout:      viper.GetDuration("result_backend.connect_timeout") * time.Second,
+		})
+		if err != nil {
+			log.Fatalf("error initializing result backend: %v", err)
+		}
+		log.Printf("result backend is '%s': %v", backendType, address)
+	default:
+		log.Fatalf("unknown result backend type '%v'", backendType)
 	}
 
 	// Parse and load SQL queries.
-	log.Printf("Loading SQL queries from %s", viper.GetString("sql-directory"))
+	log.Printf("loading SQL queries from %s", viper.GetString("sql-directory"))
 	if jobber.Queries, err = loadSQLqueries(jobber.DB, viper.GetString("sql-directory")); err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("Loaded %d SQL queries", len(jobber.Queries))
+	log.Printf("loaded %d SQL queries", len(jobber.Queries))
 
 	// Bind the server HTTP endpoints.
 	r := chi.NewRouter()

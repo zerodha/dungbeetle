@@ -12,7 +12,7 @@ This is based on [nleof/goyesql](https://github.com/nleof/goyesql) but is not co
 $ go get -u github.com/knadh/goyesql
 ```
 
-# Usage
+## Usage
 
 Create a file containing your SQL queries
 
@@ -40,8 +40,31 @@ queries := goyesql.MustParseFile("queries.sql")
 // queries["list"].Query is the list of arbitrary tags (some=param, some_other=param)
 ```
 
-# Embedding
+## Scanning
+Often, it's necessary to scan multiple queries from a SQL file, prepare them into *sql.Stmt and use them throught the application. goyesql comes with a helper function that helps with this. Given a goyesql map of queries, it can turn the queries into prepared statements and scan them into a struct that can be passed around.
 
+```go
+type MyQueries struct {
+	// This will be prepared.
+	List *sql.Stmt `query:"list"`
+
+	// This will not be prepared.
+	Get  string    `query:"get"`
+}
+
+var q MyQueries
+
+// Here, db (*sql.DB) is your live DB connection.
+err := goyesql.ScanToStruct(&q, queries, db)
+if err != nil {
+	log.Fatal(err)
+}
+
+// Then, q.Exec(), q.QueryRow() etc.
+
+```
+
+## Embedding
 You can use [bindata](https://github.com/jteeuwen/go-bindata) and `ParseBytes` func for embedding your queries in your binary.
 
 ```go

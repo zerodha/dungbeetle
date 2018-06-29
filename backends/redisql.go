@@ -63,7 +63,7 @@ type RedisConfig struct {
 func NewRediSQL(redisConfig interface{}) (ResultBackend, error) {
 	cfg, ok := redisConfig.(RedisConfig)
 	if !ok {
-		return nil, fmt.Errorf("Config should be an instance of backends.RedisConfig")
+		return nil, fmt.Errorf("config should be an instance of backends.RedisConfig")
 	}
 
 	var (
@@ -84,7 +84,7 @@ func NewRediSQL(redisConfig interface{}) (ResultBackend, error) {
 
 	c.Do("DEL", rediSQLTestDB)
 	if err := rediSQLquery(c, "REDISQL.CREATE_DB", rediSQLTestDB); err != nil {
-		return nil, fmt.Errorf("Is the rediSQL module loaded?: %v", err)
+		return nil, fmt.Errorf("is the rediSQL module loaded?: %v", err)
 	}
 	c.Do("DEL", rediSQLTestDB)
 
@@ -150,7 +150,7 @@ func (r *rediSQL) connect(cfg RedisConfig) (*redis.Pool, error) {
 	defer c.Close()
 
 	if _, err := c.Do("PING"); err != nil {
-		return nil, fmt.Errorf("Error connecting to Redis: %v", err)
+		return nil, fmt.Errorf("error connecting to Redis: %v", err)
 	}
 
 	return pool, nil
@@ -163,11 +163,11 @@ func (r *rediSQL) connect(cfg RedisConfig) (*redis.Pool, error) {
 // and population. This should only be called once for each kind of taskName.
 func (w *rediSQLWriter) RegisterColTypes(cols []string, colTypes []*sql.ColumnType) error {
 	if w.IsColTypesRegistered() {
-		return errors.New("Column types are already registered")
+		return errors.New("column types are already registered")
 	}
 
 	w.backend.schemaMutex.Lock()
-	w.backend.resTableSchemas[w.taskName] = resTableSchema(w.backend.resultsTable, cols, colTypes)
+	w.backend.resTableSchemas[w.taskName] = fmt.Sprintf(createTableSchema(cols, colTypes), w.backend.resultsTable)
 	w.backend.schemaMutex.Unlock()
 
 	return nil
@@ -185,11 +185,11 @@ func (w *rediSQLWriter) IsColTypesRegistered() bool {
 
 // WriteCols writes the column (headers) of a result set to the backend.
 // Internally, it creates a rediSQL database and creates a results table
-// based on the schema RegisterColTypes() would've created and cahed.
+// based on the schema RegisterColTypes() would've created and cached.
 // This should only be called once on a ResultWriter instance.
 func (w *rediSQLWriter) WriteCols(cols []string) error {
 	if w.colsWritten {
-		return errors.New("Columns are already written")
+		return errors.New("columns are already written")
 	}
 
 	w.backend.schemaMutex.RLock()
@@ -197,7 +197,7 @@ func (w *rediSQLWriter) WriteCols(cols []string) error {
 	w.backend.schemaMutex.RUnlock()
 
 	if !ok {
-		return errors.New("Column types for this taskName have not been registered")
+		return errors.New("column types for this taskName have not been registered")
 	}
 
 	return w.setupResultsDB(cols, rSchema)
@@ -205,15 +205,16 @@ func (w *rediSQLWriter) WriteCols(cols []string) error {
 
 // WriteRow writes an individual row from a result set to the backend.
 // Internally, it INSERT()s the given row into the rediSQL results table.
-func (w *rediSQLWriter) WriteRow(row []interface{}) error {
-	cmd := []interface{}{w.dbName, rediSQLInsertStmt}
-	return w.c.Send("REDISQL.EXEC_STATEMENT", append(cmd, row...)...)
+func (w *rediSQLWriter) WriteRow(row [][]byte) error {
+	// cmd := [][]byte{[]byte(w.dbName), []byte(rediSQLInsertStmt)}
+	// return w.c.Send("REDISQL.EXEC_STATEMENT", append(cmd, row...)...)
+	return nil
 }
 
 // Flush flushes the rows written into the rediSQL pipe.
 func (w *rediSQLWriter) Flush() error {
 	if err := w.c.Flush(); err != nil {
-		return fmt.Errorf("Error flushing results to Redis result backend: %v", err)
+		return fmt.Errorf("error flushing results to Redis result backend: %v", err)
 	}
 
 	return nil
@@ -252,35 +253,6 @@ func (w *rediSQLWriter) setupResultsDB(cols []string, resSchema string) error {
 		"INSERT INTO "+w.backend.resultsTable+" VALUES("+strings.Join(ins, ",")+")")
 }
 
-// resTableSchema takes an SQL query results, gets its column names and types,
-// and generates a rediSQL CREATE TABLE() schema for the results.
-func resTableSchema(resTable string, cols []string, colTypes []*sql.ColumnType) string {
-	var (
-		fields = make([]string, len(cols))
-		typ    = ""
-	)
-	for i := 0; i < len(cols); i++ {
-		switch colTypes[i].DatabaseTypeName() {
-		case "INT2", "INT4", "INT8", // Postgres
-			"TINYINT", "SMALLINT", "INT", "MEDIUMINT", "BIGINT": // MySQL
-			typ = "INTEGER"
-		case "FLOAT4", "FLOAT8", // Postgres
-			"DECIMAL", "FLOAT", "DOUBLE", "NUMERIC": // MySQL
-			typ = "REAL"
-		default:
-			typ = "TEXT"
-		}
-
-		if nullable, ok := colTypes[i].Nullable(); ok && !nullable {
-			typ += " NOT NULL"
-		}
-
-		fields[i] = cols[i] + " " + typ
-	}
-
-	return "CREATE TABLE " + resTable + " (" + strings.Join(fields, ",") + ");"
-}
-
 // rediSQLquery executes a REDISQL.* command against a given database name.
 // This should only be used for running non SELECT() commands as any byte
 // response received from the mdoule is treated as an error.
@@ -290,13 +262,13 @@ func rediSQLquery(c redis.Conn, cmd, dbName string, args ...interface{}) error {
 	a := append([]interface{}{dbName}, args...)
 	v, err := c.Do(cmd, a...)
 	if err != nil {
-		return fmt.Errorf("Error executing rediSQL query: %v: %v", err, args)
+		return fmt.Errorf("error executing rediSQL query: %v: %v", err, args)
 	}
 
 	// If there's a byte array, that's an error message from rediSQL.
 	msg, ok := v.([]byte)
 	if ok {
-		return fmt.Errorf("Error executing rediSQL query: %s | Query = %v", msg, args)
+		return fmt.Errorf("error executing rediSQL query: %s | Query = %v", msg, args)
 	}
 
 	return nil

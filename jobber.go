@@ -59,7 +59,7 @@ func executeTask(jobID, taskName string, args []interface{}, q *Query) (int64, e
 	defer rows.Close()
 
 	// Results backend.
-	w := jobber.RsultBackend.NewResultSet(dbName, taskName)
+	w := jobber.ResultBackend.NewResultSet(dbName, taskName)
 	defer w.Close()
 
 	// Get the columns in the results.
@@ -87,7 +87,7 @@ func executeTask(jobID, taskName string, args []interface{}, q *Query) (int64, e
 
 	// Gymnastics to read arbitrary types from the row.
 	var (
-		resCols     = make([]interface{}, numCols)
+		resCols     = make([][]byte, numCols)
 		resPointers = make([]interface{}, numCols)
 	)
 	for i := 0; i < numCols; i++ {
@@ -100,11 +100,12 @@ func executeTask(jobID, taskName string, args []interface{}, q *Query) (int64, e
 			return numRows, err
 		}
 		w.WriteRow(resCols)
+
 		numRows++
 	}
 
 	if err := w.Flush(); err != nil {
-		return numRows, fmt.Errorf("Error flushing results to Redis result backend: %v", err)
+		return numRows, fmt.Errorf("error flushing results to result backend: %v", err)
 	}
 
 	return numRows, nil

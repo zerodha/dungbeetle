@@ -11,11 +11,10 @@ state_address = "redis://127.0.0.1:6379/1"
 
 [result_backend]
 # This is where the results of SQL query jobs are saved.
-# Currently, only "redis" is supported, where, in the given Redis
-# instance, a rediSQL database with a results table is created
-# for every completed job.
+# type=redisql address="redis://127.0.0.1:6379/0"
+# type=rqlite address="http://127.0.0.1:4001"
 
-type = "redis"
+type = "redisql"
 address = "redis://127.0.0.1:6379/0"
 max_idle = 20
 max_active = 50

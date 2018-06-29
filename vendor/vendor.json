@@ -357,22 +357,22 @@
 			"revisionTime": "2017-12-21T06:53:02Z"
 		},
 		{
-			"checksumSHA1": "CKVLgI6jzoKSvQmf8dLmng6I/g4=",
+			"checksumSHA1": "3Zu+/g9zYojoaufAoPVAoOjOaKY=",
 			"path": "github.com/knadh/goyesql",
-			"revision": "bbbe5d0c5a62f6b1c045a8cadf9b430a7d661d35",
-			"revisionTime": "2018-01-09T08:30:34Z"
+			"revision": "2688572c0706ff1c39777e2be7349884e9730b53",
+			"revisionTime": "2018-02-13T09:11:54Z"
 		},
 		{
-			"checksumSHA1": "IfZcD4U1dtllJKlPNeD2aU4Jn98=",
+			"checksumSHA1": "V1a5/Ra9HXKNuArt5WKUqu+Jxt8=",
 			"path": "github.com/lib/pq",
-			"revision": "83612a56d3dd153a94a629cd64925371c9adad78",
-			"revisionTime": "2017-11-26T05:04:59Z"
+			"revision": "19c8e9ad00952ce0c64489b60e8df88bb16dd514",
+			"revisionTime": "2018-01-19T15:11:48Z"
 		},
 		{
-			"checksumSHA1": "ATnwV0POluBNQEMjPdylodz0oK0=",
+			"checksumSHA1": "AU3fA8Sm33Vj9PBoRPSeYfxLRuE=",
 			"path": "github.com/lib/pq/oid",
-			"revision": "83612a56d3dd153a94a629cd64925371c9adad78",
-			"revisionTime": "2017-11-26T05:04:59Z"
+			"revision": "19c8e9ad00952ce0c64489b60e8df88bb16dd514",
+			"revisionTime": "2018-01-19T15:11:48Z"
 		},
 		{
 			"checksumSHA1": "8ae1DyNE/yY9NvY3PmvtQdLBJnc=",
@@ -443,7 +443,7 @@
 			"revisionTime": "2017-12-21T06:53:02Z"
 		},
 		{
-			"checksumSHA1": "p5aJ1Wc4KA738r7q77NR/0qLKsA=",
+			"checksumSHA1": "G99Z/xW4ukmt8SHnsO9SIX71hFE=",
 			"path": "golang.org/x/sys/unix",
 			"revision": "dd9ec17814d5b1de388ebe438ec013d57d8b3779",
 			"revisionTime": "2018-01-06T05:11:39Z"
@@ -455,7 +455,7 @@
 			"revisionTime": "2017-12-24T20:31:28Z"
 		},
 		{
-			"checksumSHA1": "lN2xlA6Utu7tXy2iUoMF2+y9EUE=",
+			"checksumSHA1": "BCNYmf4Ek93G4lk5x3ucNi/lTwA=",
 			"path": "golang.org/x/text/unicode/norm",
 			"revision": "e19ae1496984b1c655b8044a65c0300a3c878dd3",
 			"revisionTime": "2017-12-24T20:31:28Z"

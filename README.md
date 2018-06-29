@@ -20,7 +20,7 @@ Consider an application that has a very large SQL database. When there are sever
 Once the reports are generated, it's only natural for users to further transform the results by slicing, sorting and filtering, generating additional queries to the primary database. To offset this load, we send the results into an in-memory SQL database (Redis 4.0 + rediSQL or rqlite, which are in-memory SQLite3 databases). Once the results of a particular query are available in the in-memory instance, it's then possible to offer users fast transformations on their reports with added SQLite 3 query goodness. These results are of course ephemeral and can be thrown away or expired.
 
 
-![sql-job-server png](https://user-images.githubusercontent.com/547147/34641268-6b8310ca-f327-11e7-95f2-bd2b6308586f.png)
+![sql-job-server png](https://user-images.githubusercontent.com/547147/42087713-a1ac9f20-7bb4-11e8-9ce1-08b01afc26ae.png)
 
 
 ## Concepts

@@ -102,6 +102,7 @@ func NewRqlite(cfg RqliteConfig) (ResultBackend, error) {
 func (r *rqlite) NewResultSet(dbName, taskName string) ResultSet {
 	return &rqliteWriter{
 		tblName:  dbName,
+		taskName: taskName,
 		backend:  r,
 		queryBuf: bytes.Buffer{},
 	}
@@ -212,6 +213,10 @@ func (w *rqliteWriter) WriteRow(row [][]byte) error {
 
 // Flush takes the SQL write buffer and flushes it to the rqlite server.
 func (w *rqliteWriter) Flush() error {
+	if w.queryBuf.Len() == 0 {
+		return nil
+	}
+
 	out := w.queryBuf.Bytes()
 	out = out[:len(out)-1] // Ignore that last trailing comma from WriteRow.
 	w.queryBuf.Reset()

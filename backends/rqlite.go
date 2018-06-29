@@ -60,16 +60,19 @@ type insertSchema struct {
 	insertRowCols []byte
 }
 
-// postBody represents an rqlite JSON post body.
-type postBody struct {
-}
-
 // RqliteConfig represents an Rqlite connection configuration.
 type RqliteConfig struct {
 	Address      string
 	MaxIdleConns int
 	Timeout      time.Duration
 	ResultsTTL   time.Duration
+}
+
+// rqliteErr represents an rqlite HTTP error.
+type rqliteErr struct {
+	Results []struct {
+		Error string `json:"error"`
+	} `json:"results"`
 }
 
 // NewRqlite creates and returns a new Rqlite results backend instance.
@@ -124,14 +127,14 @@ func (w *rqliteWriter) RegisterColTypes(cols []string, colTypes []*sql.ColumnTyp
 		colValHolder  = make([]string, len(cols))
 	)
 	for i := range w.cols {
-		colNameHolder[i] = w.cols[i]
+		colNameHolder[i] = "`" + w.cols[i] + "`"
 
 		// This will be filled at the time of insertion by
 		// the sql eval/escape library.
 		colValHolder[i] = "%s"
 	}
 	var (
-		ins     = "INSERT INTO %s (" + strings.Join(colNameHolder, ",") + ") VALUES "
+		ins     = "INSERT INTO `%s` (" + strings.Join(colNameHolder, ",") + ") VALUES "
 		insCols = "(" + strings.Join(colValHolder, ",") + ")"
 	)
 
@@ -193,7 +196,7 @@ func (w *rqliteWriter) WriteRow(row [][]byte) error {
 	if w.queryBuf.Len() == 0 {
 		// Open list for the rqlite JSON payload.
 		w.queryBuf.Write([]byte("[\""))
-		w.queryBuf.Write([]byte(fmt.Sprintf(rSchema.insertRow, w.taskName)))
+		w.queryBuf.Write([]byte(fmt.Sprintf(rSchema.insertRow, w.tblName)))
 	}
 
 	// Prepare insert-value blocks: ('a', 'b' ...)
@@ -251,5 +254,15 @@ func (r *rqlite) execute(uri string, method string, payload []byte, respObj inte
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
+
+	// rqlite doesn't return non 200 statuses for errors, unfortunately.
+	var rErr rqliteErr
+	if err := json.Unmarshal(body, &rErr); err != nil {
+		return err
+	}
+	if len(rErr.Results) == 1 && rErr.Results[0].Error != "" {
+		return errors.New(rErr.Results[0].Error)
+	}
+
 	return json.Unmarshal(body, &respObj)
 }

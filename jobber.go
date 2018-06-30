@@ -6,6 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
+
+	"github.com/RichardKnop/machinery/v1/tasks"
+	uuid "github.com/satori/go.uuid"
 )
 
 var (
@@ -13,8 +17,54 @@ var (
 	jobMutex    = sync.RWMutex{}
 )
 
+// createJobSignature creates and returns a machinery tasks.Signature{} from the given job params.
+func createJobSignature(j jobReq, taskName string, jobber *Jobber) (tasks.Signature, error) {
+	if _, ok := jobber.Queries[taskName]; !ok {
+		return tasks.Signature{}, fmt.Errorf("unrecognized task: %s", taskName)
+	}
+
+	// Check if a job with the same ID is already running.
+	if s, err := jobber.Machinery.GetBackend().GetState(j.JobID); err == nil && !s.IsCompleted() {
+		return tasks.Signature{}, fmt.Errorf("job '%s' is already running", j.JobID)
+	}
+
+	// If there's no job_id, we generate one. This is because
+	// the ID Machinery generates is not made available inside the
+	// actual task. So, we generate the ID and pass it as an argument
+	// to the task itself.
+	if j.JobID == "" {
+		j.JobID = fmt.Sprintf("job_%v", uuid.NewV4())
+	}
+
+	// Task arguments.
+	args := append([]tasks.Arg{
+		// First two arguments have to be jobID and taskName.
+		{Type: "string", Value: j.JobID},
+		{Type: "string", Value: taskName},
+	}, sliceToTaskArgs(j.Args)...)
+
+	var eta *time.Time
+	if j.ETA != "" {
+		e, err := time.Parse("2006-01-02 15:04:05", j.ETA)
+		if err != nil {
+			return tasks.Signature{}, fmt.Errorf("error parsing ETA: %v", err)
+		}
+
+		eta = &e
+	}
+
+	return tasks.Signature{
+		Name:       taskName,
+		UUID:       j.JobID,
+		RoutingKey: j.Queue,
+		RetryCount: j.Retries,
+		Args:       args,
+		ETA:        eta,
+	}, nil
+}
+
 // executeTask executes an SQL statement job and inserts the results into the rediSQL backend.
-func executeTask(jobID, taskName string, args []interface{}, q *Query) (int64, error) {
+func executeTask(jobID, taskName string, args []interface{}, q *Query, jobber *Jobber) (int64, error) {
 	var (
 		dbName  = fmt.Sprintf(jobber.Constants.ResultsDB, jobID)
 		numRows int64
@@ -22,7 +72,7 @@ func executeTask(jobID, taskName string, args []interface{}, q *Query) (int64, e
 
 	// If the job's deleted, stop.
 	if _, err := jobber.Machinery.GetBackend().GetState(jobID); err != nil {
-		return numRows, errors.New("The job was canceled")
+		return numRows, errors.New("the job was canceled")
 	}
 
 	// Execute the query.
@@ -51,10 +101,10 @@ func executeTask(jobID, taskName string, args []interface{}, q *Query) (int64, e
 	}
 	if err != nil {
 		if err == context.Canceled {
-			return numRows, errors.New("The job was canceled")
+			return numRows, errors.New("the job was canceled")
 		}
 
-		return numRows, fmt.Errorf("Task query execution failed: %v", err)
+		return numRows, fmt.Errorf("task SQL query execution failed: %v", err)
 	}
 	defer rows.Close()
 

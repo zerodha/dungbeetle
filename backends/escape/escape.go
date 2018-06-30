@@ -13,14 +13,11 @@ var params = regexp.MustCompile(`%([s])`)
 
 // Escaper represents an instance of the SQL query escaper.
 type Escaper struct {
-	buf bytes.Buffer
 }
 
 // New returns a new instance of the query escaper.
 func New() *Escaper {
-	return &Escaper{
-		buf: bytes.Buffer{},
-	}
+	return &Escaper{}
 }
 
 // Escape the given `query` with positional `args`.
@@ -51,14 +48,16 @@ func (esc *Escaper) Escape(query []byte, args ...[]byte) ([]byte, error) {
 
 // Literal escape the given string.
 func (esc *Escaper) literal(s []byte) []byte {
+	buf := bytes.Buffer{}
+
 	s = bytes.Replace(s, []byte(`'`), []byte(`''`), -1)
 	s = bytes.Replace(s, []byte(`\`), []byte(`\\`), -1)
 	s = bytes.Replace(s, []byte(`"`), []byte(`\"`), -1)
 
-	esc.buf.Reset()
-	esc.buf.Write([]byte(`'`))
-	esc.buf.Write(s)
-	esc.buf.Write([]byte(`'`))
+	buf.Reset()
+	buf.Write([]byte(`'`))
+	buf.Write(s)
+	buf.Write([]byte(`'`))
 
-	return esc.buf.Bytes()
+	return buf.Bytes()
 }

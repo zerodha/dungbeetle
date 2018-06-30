@@ -1,57 +1,68 @@
 package main
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
-	"strconv"
 	"time"
 
 	"github.com/RichardKnop/machinery/v1/tasks"
 	"github.com/go-chi/chi"
 )
 
-type httpResp struct {
-	Status  string      `json:"status"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data"`
+// groupConcurrency represents the concurrency factor for job groups.
+const groupConcurrency = 5
+
+type jobReq struct {
+	TaskName string   `json:"task"`
+	JobID    string   `json:"job_id"`
+	Queue    string   `json:"queue"`
+	ETA      string   `json:"eta"`
+	Retries  int      `json:"retries"`
+	Args     []string `json:"args"`
+}
+
+type groupReq struct {
+	GroupID     string   `json:"group_id"`
+	Concurrency int      `json:"concurrency"`
+	Jobs        []jobReq `json:"jobs"`
 }
 
 type jobResp struct {
 	JobID    string     `json:"job_id"`
-	TaskName string     `json:"task_name"`
+	TaskName string     `json:"task"`
 	Queue    string     `json:"queue"`
 	ETA      *time.Time `json:"eta"`
 	Retries  int        `json:"retries"`
 }
 
+type groupResp struct {
+	GroupID string    `json:"group_id"`
+	Jobs    []jobResp `json:"jobs"`
+}
+
+type groupStatusResp struct {
+	GroupID string          `json:"group_id"`
+	State   string          `json:"state"`
+	Jobs    []jobStatusResp `json:"jobs"`
+}
+
 type jobStatusResp struct {
 	JobID   string              `json:"job_id"`
-	State   string              `json:"status"`
+	State   string              `json:"state"`
 	Results []*tasks.TaskResult `json:"results"`
 	Error   string              `json:"error"`
 }
 
-// validateTaskName middleware validates task names in incoming task requests.
-func validateURLParams(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		v := chi.URLParam(r, "taskName")
-		if v != "" {
-			if _, ok := jobber.Queries[v]; !ok {
-				sendErrorResponse(w, "Unrecognised task name.", http.StatusBadRequest)
-				return
-			}
-		}
-
-		next.ServeHTTP(w, r)
-	}
+type httpResp struct {
+	Status  string      `json:"status"`
+	Message string      `json:"message,omitempty"`
+	Data    interface{} `json:"data"`
 }
 
-// handleGetTasks returns the jobs list. If the optional query param ?sql=1
+// handleGetTasksList returns the jobs list. If the optional query param ?sql=1
 // is passed, it returns the raw SQL bodies as well.
-func handleGetTasks(w http.ResponseWriter, r *http.Request) {
+func handleGetTasksList(w http.ResponseWriter, r *http.Request) {
 	// Just the names.
 	if r.URL.Query().Get("sql") == "" {
 		sendResponse(w, jobber.Machinery.GetRegisteredTaskNames())
@@ -61,13 +72,12 @@ func handleGetTasks(w http.ResponseWriter, r *http.Request) {
 	sendResponse(w, jobber.Queries)
 }
 
-// handleGetJob returns the status of a given jobID.
-func handleGetJob(w http.ResponseWriter, r *http.Request) {
+// handleGetJobStatus returns the status of a given jobID.
+func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 	out, err := jobber.Machinery.GetBackend().GetState(chi.URLParam(r, "jobID"))
 	if err != nil {
-		sendErrorResponse(w,
-			fmt.Sprintf("Error fetching task status: %v", err),
-			http.StatusInternalServerError)
+		sysLog.Printf("error fetching job status: %v", err)
+		sendErrorResponse(w, "error fetching job status", http.StatusInternalServerError)
 		return
 	}
 
@@ -79,13 +89,64 @@ func handleGetJob(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleGetJobs returns pending jobs in a given queue.
-func handleGetJobs(w http.ResponseWriter, r *http.Request) {
+// handleGetGroupStatus returns the status of a given groupID.
+func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
+	var (
+		groupID = chi.URLParam(r, "groupID")
+	)
+
+	res, err := jobber.Machinery.GetBackend().GroupTaskStates(groupID, 0)
+	if err != nil {
+		sysLog.Printf("error fetching group status: %v", err)
+		sendErrorResponse(w, "error fetching group status", http.StatusInternalServerError)
+		return
+
+	}
+
+	var (
+		jobs        = make([]jobStatusResp, len(res))
+		jobsDone    = 0
+		groupFailed = false
+	)
+	for i, j := range res {
+		jobs[i] = jobStatusResp{
+			JobID:   j.TaskUUID,
+			State:   j.State,
+			Results: j.Results,
+			Error:   j.Error,
+		}
+
+		if j.State == tasks.StateSuccess {
+			jobsDone++
+		} else if j.State == tasks.StateFailure {
+			groupFailed = true
+		}
+	}
+
+	var groupStatus string
+	if groupFailed {
+		groupStatus = tasks.StateFailure
+	} else if len(res) == jobsDone {
+		groupStatus = tasks.StateSuccess
+	} else {
+		groupStatus = tasks.StatePending
+	}
+
+	out := groupStatusResp{
+		GroupID: groupID,
+		State:   groupStatus,
+		Jobs:    jobs,
+	}
+
+	sendResponse(w, out)
+}
+
+// handleGetPendingJobs returns pending jobs in a given queue.
+func handleGetPendingJobs(w http.ResponseWriter, r *http.Request) {
 	out, err := jobber.Machinery.GetBroker().GetPendingTasks(chi.URLParam(r, "queue"))
 	if err != nil {
-		sendErrorResponse(w,
-			fmt.Sprintf("Error fetching pending tasks from queue: %v", err),
-			http.StatusInternalServerError)
+		sysLog.Printf("error fetching pending tasks: %v", err)
+		sendErrorResponse(w, "error fetching pending tasks", http.StatusInternalServerError)
 		return
 	}
 
@@ -94,76 +155,112 @@ func handleGetJobs(w http.ResponseWriter, r *http.Request) {
 
 // handlePostJob creates a new job against a given task name.
 func handlePostJob(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
-
 	var (
 		taskName = chi.URLParam(r, "taskName")
-		jobID    = r.Form.Get("job_id")
-
-		err error
+		job      jobReq
 	)
 
-	// Check if a job with the same ID is already running.
-	if s, err := jobber.Machinery.GetBackend().GetState(jobID); err == nil && !s.IsCompleted() {
-		sendErrorResponse(w, "Error posting job. A job with the same ID is already running.",
-			http.StatusInternalServerError)
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&job); err != nil {
+		sysLog.Printf("error parsing JSON body: %v", err)
+		sendErrorResponse(w, "error parsing JSON body", http.StatusBadRequest)
 		return
 	}
 
-	// If there's no job_id, we generate one. This is because
-	// the ID Machinery generates is not made available inside the
-	// actual task. So, we generate the ID and pass it as an argument
-	// to the task itself.
-	if jobID == "" {
-		jobID, err = generateRandomString(32)
-		if err != nil {
-			sendErrorResponse(w, fmt.Sprintf("Error generating job_id: %v", err), http.StatusInternalServerError)
-			return
-		}
-	}
-
-	// Task arguments.
-	args := append([]tasks.Arg{
-		// First two arguments have to be jobID and taskName.
-		{Type: "string", Value: jobID},
-		{Type: "string", Value: taskName},
-	}, formToArgs(r.PostForm)...)
-
-	// Retries.
-	retries, _ := strconv.Atoi(r.Form.Get("retries"))
-
-	// ETA.
-	var eta *time.Time
-	if r.Form.Get("eta") != "" {
-		e, err := time.Parse("2006-01-02 15:04:05", r.Form.Get("eta"))
-		if err != nil {
-			sendErrorResponse(w, fmt.Sprintf("Error parsing eta timestamp: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		eta = &e
-	}
-
-	out, err := jobber.Machinery.SendTask(&tasks.Signature{
-		Name:       taskName,
-		UUID:       jobID,
-		RoutingKey: r.Form.Get("queue"),
-		RetryCount: retries,
-		Args:       args,
-		ETA:        eta,
-	})
+	// Create the job signature.
+	sig, err := createJobSignature(job, taskName, jobber)
 	if err != nil {
-		sendErrorResponse(w, fmt.Sprintf("Error posting job: %v", err), http.StatusInternalServerError)
+		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Create the job.
+	res, err := jobber.Machinery.SendTask(&sig)
+	if err != nil {
+		sysLog.Printf("error posting job: %v", err)
+		sendErrorResponse(w, "error posting job", http.StatusInternalServerError)
 		return
 	}
 
 	sendResponse(w, jobResp{
-		JobID:    out.Signature.UUID,
-		TaskName: out.Signature.Name,
-		Queue:    out.Signature.RoutingKey,
-		Retries:  out.Signature.RetryCount,
-		ETA:      out.Signature.ETA,
+		JobID:    res.Signature.UUID,
+		TaskName: res.Signature.Name,
+		Queue:    res.Signature.RoutingKey,
+		Retries:  res.Signature.RetryCount,
+		ETA:      res.Signature.ETA,
 	})
+}
+
+// handlePostJobGroup creates a new job against a given task name.
+func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
+	var group groupReq
+
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&group); err != nil {
+		sysLog.Printf("error parsing JSON body: %v", err)
+		sendErrorResponse(w, "error parsing JSON body", http.StatusBadRequest)
+		return
+	}
+
+	// Create job signatures for all the jobs in the group.
+	var sigs []*tasks.Signature
+	for _, j := range group.Jobs {
+		sig, err := createJobSignature(j, j.TaskName, jobber)
+		if err != nil {
+			sysLog.Printf("error creating job signature: %v", err)
+			sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		sigs = append(sigs, &sig)
+	}
+
+	conc := groupConcurrency
+	if group.Concurrency > 0 {
+		conc = group.Concurrency
+	}
+
+	// Create the group and send it.
+	taskGroup := tasks.NewGroup(sigs...)
+
+	// If there's an incoming group ID, overwrite the generated one.
+	if group.GroupID != "" {
+		taskGroup.GroupUUID = group.GroupID
+
+		for _, t := range taskGroup.Tasks {
+			t.GroupUUID = group.GroupID
+		}
+	}
+
+	res, err := jobber.Machinery.SendGroup(taskGroup, conc)
+	if err != nil {
+		sysLog.Printf("error posting job group: %v", err)
+		sendErrorResponse(w, "error posting job group", http.StatusInternalServerError)
+		return
+	}
+
+	jobs := make([]jobResp, len(res))
+	for i, r := range res {
+		jobs[i] = jobResp{
+			JobID:    r.Signature.UUID,
+			TaskName: r.Signature.Name,
+			Queue:    r.Signature.RoutingKey,
+			Retries:  r.Signature.RetryCount,
+			ETA:      r.Signature.ETA,
+		}
+	}
+
+	gID := group.GroupID
+	if gID == "" {
+		gID = res[0].Signature.GroupUUID
+	}
+
+	out := groupResp{
+		GroupID: gID,
+		Jobs:    jobs,
+	}
+
+	sendResponse(w, out)
 }
 
 // handleDeleteJob deletes a job from the job queue if it's not already
@@ -176,13 +273,14 @@ func handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 		s, err = jobber.Machinery.GetBackend().GetState(jobID)
 	)
 	if err != nil {
-		sendErrorResponse(w, fmt.Sprintf("Error fetching job: %v", err), http.StatusInternalServerError)
+		sysLog.Printf("error fetching job: %v", err)
+		sendErrorResponse(w, "error fetching job", http.StatusInternalServerError)
 		return
 	}
 
 	// If the job is already complete, no go.
 	if s.IsCompleted() {
-		sendErrorResponse(w, "Can't delete job as it's already complete.", http.StatusGone)
+		sendErrorResponse(w, "can't delete job as it's already complete", http.StatusGone)
 		return
 	}
 
@@ -196,7 +294,8 @@ func handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 
 	// Delete the job.
 	if err := jobber.Machinery.GetBackend().PurgeState(jobID); err != nil {
-		sendErrorResponse(w, fmt.Sprintf("Error deleting job: %v", err), http.StatusGone)
+		sysLog.Printf("error deleting job: %v", err)
+		sendErrorResponse(w, fmt.Sprintf("error deleting job: %v", err), http.StatusGone)
 		return
 	}
 
@@ -220,43 +319,23 @@ func sendErrorResponse(w http.ResponseWriter, message string, code int) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
 
-	resp := httpResp{Message: message}
+	resp := httpResp{Status: "error", Message: message}
 	out, _ := json.Marshal(resp)
 
 	w.Write(out)
 }
 
-// formToArgs takes a url.Values{} and returns a typed
+// sliceToTaskArgs takes a url.Values{} and returns a typed
 // machinery Task Args list.
-func formToArgs(params url.Values) []tasks.Arg {
+func sliceToTaskArgs(a []string) []tasks.Arg {
 	var args []tasks.Arg
 
-	for k, vals := range params {
-		if k == "arg" {
-			for _, v := range vals {
-				args = append(args, tasks.Arg{
-					Type:  "string",
-					Value: v,
-				})
-			}
-		}
+	for _, v := range a {
+		args = append(args, tasks.Arg{
+			Type:  "string",
+			Value: v,
+		})
 	}
 
 	return args
-}
-
-// generateRandomString generates a random string.
-func generateRandomString(n int) (string, error) {
-	const dictionary = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-
-	var bytes = make([]byte, n)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-
-	for k, v := range bytes {
-		bytes[k] = dictionary[v%byte(len(dictionary))]
-	}
-
-	return string(bytes), nil
 }

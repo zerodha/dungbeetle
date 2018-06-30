@@ -18,6 +18,8 @@ import (
 	"github.com/spf13/viper"
 	"github.com/zerodhatech/sql-jobber/backends"
 
+	mlog "github.com/RichardKnop/machinery/v1/log"
+
 	// MySQL and Postgres drivers.
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
@@ -70,15 +72,20 @@ type DBConfig struct {
 	ConnectTimeout time.Duration `mapstructure:"connect_timeout"`
 }
 
-// Global container.
-var jobber = Jobber{}
+var (
+	// Global Jobber container.
+	jobber = &Jobber{}
+
+	sysLog = log.New(os.Stdout, "JOBBER: ", log.Ldate|log.Ltime|log.Lshortfile)
+	mLog   = log.New(os.Stdout, "MACHINERY: ", log.Ldate|log.Ltime|log.Lshortfile)
+)
 
 func init() {
 	// Command line flags.
 	flagSet := flag.NewFlagSet("config", flag.ContinueOnError)
 	flagSet.Usage = func() {
-		log.Println("SQL Jobber")
-		log.Println(flagSet.FlagUsages())
+		sysLog.Println("SQL Jobber")
+		sysLog.Println(flagSet.FlagUsages())
 		os.Exit(0)
 	}
 
@@ -110,6 +117,7 @@ func init() {
 	if err != nil {
 		log.Fatalf("error reading config: %s", err)
 	}
+
 }
 
 // connectDB creates and returns a database connection.
@@ -175,9 +183,9 @@ func loadSQLqueries(db *sql.DB, dir string) (Queries, error) {
 					return nil, fmt.Errorf("Error preparing SQL query '%s': %v", name, err)
 				}
 
-				log.Print("-- ", name)
+				sysLog.Print("-- ", name)
 			} else {
-				log.Print("-- ", name, " (raw)")
+				sysLog.Print("-- ", name, " (raw)")
 			}
 
 			queries[name] = Query{Stmt: stmt,
@@ -206,10 +214,12 @@ func connectJobServer(cfg *config.Config, queries Queries) (*machinery.Server, e
 					return 0, fmt.Errorf("Skipping deleted job: %v", err)
 				}
 
-				return executeTask(jobID, taskName, args, &q)
+				return executeTask(jobID, taskName, args, &q, jobber)
 			}
 		}(query))
 	}
+
+	mlog.Set(mLog)
 
 	return server, nil
 }
@@ -217,10 +227,10 @@ func connectJobServer(cfg *config.Config, queries Queries) (*machinery.Server, e
 func main() {
 	// Display version.
 	if viper.GetBool("version") {
-		log.Printf("commit: %v\nBuild: %v", buildVersion, buildDate)
+		sysLog.Printf("commit: %v\nBuild: %v", buildVersion, buildDate)
 		return
 	}
-	log.Printf("starting server '%s'", viper.GetString("worker-name"))
+	sysLog.Printf("starting server '%s'", viper.GetString("worker-name"))
 
 	var (
 		dbConf DBConfig
@@ -233,7 +243,7 @@ func main() {
 
 	// Connect to the database.
 	viper.UnmarshalKey("db", &dbConf)
-	log.Printf("connecting to DB %s@%s:%d", dbConf.DBname, dbConf.Host, dbConf.Port)
+	sysLog.Printf("connecting to DB %s@%s:%d", dbConf.DBname, dbConf.Host, dbConf.Port)
 	jobber.DB, err = connectDB(dbConf)
 	if err != nil {
 		log.Fatal(err)
@@ -256,7 +266,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("error initializing result backend: %v", err)
 		}
-		log.Printf("result backend is '%s': %v", backendType, cfg.Address)
+		sysLog.Printf("result backend is '%s': %v", backendType, cfg.Address)
 	case "rqlite":
 		address := viper.GetString("result_backend.address")
 		jobber.ResultBackend, err = backends.NewRqlite(backends.RqliteConfig{
@@ -268,29 +278,35 @@ func main() {
 		if err != nil {
 			log.Fatalf("error initializing result backend: %v", err)
 		}
-		log.Printf("result backend is '%s': %v", backendType, address)
+		sysLog.Printf("result backend is '%s': %v", backendType, address)
 	default:
 		log.Fatalf("unknown result backend type '%v'", backendType)
 	}
 
 	// Parse and load SQL queries.
-	log.Printf("loading SQL queries from %s", viper.GetString("sql-directory"))
+	sysLog.Printf("loading SQL queries from %s", viper.GetString("sql-directory"))
 	if jobber.Queries, err = loadSQLqueries(jobber.DB, viper.GetString("sql-directory")); err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("loaded %d SQL queries", len(jobber.Queries))
+	sysLog.Printf("loaded %d SQL queries", len(jobber.Queries))
 
 	// Bind the server HTTP endpoints.
 	r := chi.NewRouter()
-	r.Use(middleware.Logger)
+	r.Use(middleware.RequestLogger(&middleware.DefaultLogFormatter{
+		Logger: log.New(os.Stdout, "HTTP: ", log.Ldate|log.Ltime)}))
+
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		sendResponse(w, "Welcome!")
 	})
-	r.Get("/tasks", handleGetTasks)
-	r.Post("/tasks/{taskName}/jobs", validateURLParams(handlePostJob))
-	r.Get("/jobs/{jobID}", handleGetJob)
-	r.Get("/jobs/queue/{queue}", handleGetJobs)
+	r.Get("/tasks", handleGetTasksList)
+	r.Post("/tasks/{taskName}/jobs", handlePostJob)
+
+	r.Get("/jobs/{jobID}", handleGetJobStatus)
+	r.Get("/jobs/queue/{queue}", handleGetPendingJobs)
 	r.Delete("/jobs/{jobID}", handleDeleteJob)
+
+	r.Post("/groups", handlePostJobGroup)
+	r.Get("/groups/{groupID}", handleGetGroupStatus)
 
 	// Setup the job server.
 	jobber.Machinery, err = connectJobServer(&config.Config{
@@ -305,13 +321,13 @@ func main() {
 
 	// Start the HTTP server.
 	if !viper.GetBool("worker-only") {
-		log.Printf("Starting HTTP server on %s", viper.GetString("server"))
+		sysLog.Printf("Starting HTTP server on %s", viper.GetString("server"))
 		go func() {
-			log.Println(http.ListenAndServe(viper.GetString("server"), r))
+			sysLog.Println(http.ListenAndServe(viper.GetString("server"), r))
 			os.Exit(0)
 		}()
 	} else {
-		log.Printf("Not starting HTTP server in worker-only mode")
+		sysLog.Printf("Not starting HTTP server in worker-only mode")
 	}
 
 	jobber.Worker = jobber.Machinery.NewWorker(viper.GetString("worker-name"),

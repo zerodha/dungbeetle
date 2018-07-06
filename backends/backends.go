@@ -50,5 +50,5 @@ func createTableSchema(cols []string, colTypes []*sql.ColumnType) string {
 		fields[i] = "`" + cols[i] + "`" + " " + typ
 	}
 
-	return "CREATE TABLE IF NOT EXISTS `%s` (" + strings.Join(fields, ",") + ");"
+	return "DROP TABLE IF EXISTS %s; CREATE TABLE IF NOT EXISTS `%s` (" + strings.Join(fields, ",") + ");"
 }

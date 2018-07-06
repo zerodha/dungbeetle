@@ -167,7 +167,8 @@ func (w *rediSQLWriter) RegisterColTypes(cols []string, colTypes []*sql.ColumnTy
 	}
 
 	w.backend.schemaMutex.Lock()
-	w.backend.resTableSchemas[w.taskName] = fmt.Sprintf(createTableSchema(cols, colTypes), w.backend.resultsTable)
+	w.backend.resTableSchemas[w.taskName] = fmt.Sprintf(createTableSchema(cols, colTypes),
+		w.backend.resultsTable, w.backend.resultsTable)
 	w.backend.schemaMutex.Unlock()
 
 	return nil

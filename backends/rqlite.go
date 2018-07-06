@@ -180,7 +180,7 @@ func (w *rqliteWriter) WriteCols(cols []string) error {
 	// Wrap in an array (for rqlite).
 	buf := bytes.Buffer{}
 	buf.Write([]byte("[\""))
-	buf.Write([]byte(fmt.Sprintf(rSchema.createTable, w.tblName)))
+	buf.Write([]byte(fmt.Sprintf(rSchema.createTable, w.tblName, w.tblName)))
 	buf.Write([]byte("\"]"))
 
 	return w.backend.execute(uriExecute, http.MethodPost, buf.Bytes(), nil)

@@ -23,7 +23,7 @@ const (
 type rediSQL struct {
 	pool         *redis.Pool
 	resultsTable string
-	resultsTTL   int
+	resultsTTL   time.Duration
 
 	// The result schemas (CREATE TABLE ...) for rediSQL are dynamically
 	// generated everytime queries are executed based on their result columns.
@@ -38,6 +38,7 @@ type rediSQLWriter struct {
 	dbName      string
 	taskName    string
 	colsWritten bool
+	ttl         time.Duration
 
 	backend *rediSQL
 	c       redis.Conn
@@ -54,7 +55,7 @@ type RedisConfig struct {
 	ReadTimeout    time.Duration `mapstructure:"read_timeout"`
 	WriteTimeout   time.Duration `mapstructure:"write_timeout"`
 	ResultsTable   string        `mapstructure:"results_table"`
-	ResultsTTL     int           `mapstructure:"results_ttl"`
+	ResultsTTL     time.Duration `mapstructure:"results_ttl"`
 }
 
 // NewRediSQL returns a new RediSQL results backend instance.
@@ -107,13 +108,20 @@ func NewRediSQL(redisConfig interface{}) (ResultBackend, error) {
 // NewResultSet returns a new instance of a rediSQL result writer.
 // A new instance should be acquired for every individual job result
 // to be written to the backend and then thrown away.
-func (r *rediSQL) NewResultSet(resultName, taskName string) ResultSet {
+func (r *rediSQL) NewResultSet(resultName, taskName string, ttl time.Duration) ResultSet {
+	var resTTL time.Duration
+	if ttl.Seconds() > 0 {
+		resTTL = ttl
+	} else {
+		resTTL = r.resultsTTL
+	}
+
 	return &rediSQLWriter{
 		dbName:   resultName,
 		taskName: taskName,
 		c:        r.pool.Get(),
-
-		backend: r,
+		ttl:      resTTL,
+		backend:  r,
 	}
 }
 

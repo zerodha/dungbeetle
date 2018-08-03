@@ -18,7 +18,7 @@ var (
 )
 
 // createJobSignature creates and returns a machinery tasks.Signature{} from the given job params.
-func createJobSignature(j jobReq, taskName string, jobber *Jobber) (tasks.Signature, error) {
+func createJobSignature(j jobReq, taskName string, ttl int, jobber *Jobber) (tasks.Signature, error) {
 	if _, ok := jobber.Queries[taskName]; !ok {
 		return tasks.Signature{}, fmt.Errorf("unrecognized task: %s", taskName)
 	}
@@ -39,8 +39,12 @@ func createJobSignature(j jobReq, taskName string, jobber *Jobber) (tasks.Signat
 	// Task arguments.
 	args := append([]tasks.Arg{
 		// First two arguments have to be jobID and taskName.
+		// Machinery will refelect on these and pass them as arguments
+		// to the callback registered using RegisterTask() when a task
+		// is executed.
 		{Type: "string", Value: j.JobID},
 		{Type: "string", Value: taskName},
+		{Type: "int", Value: ttl},
 	}, sliceToTaskArgs(j.Args)...)
 
 	var eta *time.Time
@@ -63,8 +67,8 @@ func createJobSignature(j jobReq, taskName string, jobber *Jobber) (tasks.Signat
 	}, nil
 }
 
-// executeTask executes an SQL statement job and inserts the results into the rediSQL backend.
-func executeTask(jobID, taskName string, args []interface{}, q *Query, jobber *Jobber) (int64, error) {
+// executeTask executes an SQL statement job and inserts the results into the results backend.
+func executeTask(jobID, taskName string, ttl int, args []interface{}, q *Query, jobber *Jobber) (int64, error) {
 	var (
 		dbName  = fmt.Sprintf(jobber.Constants.ResultsDB, jobID)
 		numRows int64
@@ -109,7 +113,7 @@ func executeTask(jobID, taskName string, args []interface{}, q *Query, jobber *J
 	defer rows.Close()
 
 	// Results backend.
-	w := jobber.ResultBackend.NewResultSet(dbName, taskName)
+	w := jobber.ResultBackend.NewResultSet(dbName, taskName, time.Second*time.Duration(ttl))
 	defer w.Close()
 
 	// Get the columns in the results.

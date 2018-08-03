@@ -37,7 +37,7 @@ type constants struct {
 	ResultsDB string
 }
 
-type taskFunc func(string, string, ...interface{}) (int64, error)
+type taskFunc func(jobID string, taskName string, ttl int, args ...interface{}) (int64, error)
 
 // Queries represents a map of prepared SQL statements.
 type Queries map[string]Query
@@ -208,13 +208,13 @@ func connectJobServer(cfg *config.Config, queries Queries) (*machinery.Server, e
 	// Register the tasks with the query names.
 	for name, query := range queries {
 		server.RegisterTask(string(name), func(q Query) taskFunc {
-			return func(jobID, taskName string, args ...interface{}) (int64, error) {
+			return func(jobID, taskName string, ttl int, args ...interface{}) (int64, error) {
 				// Check if the job's been deleted.
 				if _, err := jobber.Machinery.GetBackend().GetState(jobID); err != nil {
 					return 0, fmt.Errorf("Skipping deleted job: %v", err)
 				}
 
-				return executeTask(jobID, taskName, args, &q, jobber)
+				return executeTask(jobID, taskName, ttl, args, &q, jobber)
 			}
 		}(query))
 	}
@@ -262,6 +262,7 @@ func main() {
 				viper.GetString("result_backend.address"))
 		}
 
+		cfg.ResultsTTL = cfg.ResultsTTL * time.Second
 		jobber.ResultBackend, err = backends.NewRediSQL(cfg)
 		if err != nil {
 			log.Fatalf("error initializing result backend: %v", err)

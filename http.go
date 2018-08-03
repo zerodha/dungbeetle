@@ -19,7 +19,10 @@ type jobReq struct {
 	Queue    string   `json:"queue"`
 	ETA      string   `json:"eta"`
 	Retries  int      `json:"retries"`
+	TTL      int      `json:"ttl"`
 	Args     []string `json:"args"`
+
+	ttlDuration time.Duration
 }
 
 type groupReq struct {
@@ -168,7 +171,7 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create the job signature.
-	sig, err := createJobSignature(job, taskName, jobber)
+	sig, err := createJobSignature(job, taskName, job.TTL, jobber)
 	if err != nil {
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -205,7 +208,7 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 	// Create job signatures for all the jobs in the group.
 	var sigs []*tasks.Signature
 	for _, j := range group.Jobs {
-		sig, err := createJobSignature(j, j.TaskName, jobber)
+		sig, err := createJobSignature(j, j.TaskName, j.TTL, jobber)
 		if err != nil {
 			sysLog.Printf("error creating job signature: %v", err)
 			sendErrorResponse(w, err.Error(), http.StatusInternalServerError)

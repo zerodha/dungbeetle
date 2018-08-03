@@ -48,6 +48,7 @@ type rqliteWriter struct {
 	cols        []string
 	rows        [][]byte
 	queryBuf    bytes.Buffer
+	ttl         time.Duration
 
 	backend *rqlite
 }
@@ -99,12 +100,20 @@ func NewRqlite(cfg RqliteConfig) (ResultBackend, error) {
 // NewResultSet returns a new instance of a rqlite result writer.
 // A new instance should be acquired for every individual job result
 // to be written to the backend and then thrown away.
-func (r *rqlite) NewResultSet(dbName, taskName string) ResultSet {
+func (r *rqlite) NewResultSet(dbName, taskName string, ttl time.Duration) ResultSet {
+	var resTTL time.Duration
+	if ttl.Seconds() > 0 {
+		resTTL = ttl
+	} else {
+		resTTL = r.resultsTTL
+	}
+
 	return &rqliteWriter{
 		tblName:  dbName,
 		taskName: taskName,
 		backend:  r,
 		queryBuf: bytes.Buffer{},
+		ttl:      resTTL,
 	}
 }
 
@@ -228,7 +237,7 @@ func (w *rqliteWriter) Flush() error {
 	}
 
 	// Results were saved. Apply the TTL.
-	w.backend.ttlMap.Add(w.backend.resultsTTL, func(tblName string) func() {
+	w.backend.ttlMap.Add(w.ttl, func(tblName string) func() {
 		return func() {
 			out := bytes.Buffer{}
 			out.Write([]byte(fmt.Sprintf(`["DROP TABLE %s"]`, tblName)))

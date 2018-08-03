@@ -75,7 +75,7 @@ $ redis-cli
 ```
 
 ##### rqlite
-If the results backend is rqlite, the results are written into tables named after the job IDs. For cache expiries, a ttl mechanism implemented in the backend.
+If the results backend is rqlite, the results are written into tables named after the job IDs. For result cache expiries, a simple in-memory TTL mechanism implemented in the backend. Do note that, for now, if the application is restarted, the TTL is lost and the results may never be removed.
 
 ## Installation
 ### 1) Install
@@ -118,6 +118,7 @@ POST requests accept raw JSON bodies. The JSON params are listed below.
 | `queue` *string*     | (Optional) Queue to send the job to. Only workers listening on this queue will receive the jobs.                                                                                                              |   |
 | `eta` *string*         | (Optional) Timestamp (`yyyy-mm-dd hh:mm:ss`) at which the job should start. If this is not provided, the job is queued immediately.               |   |
 | `retries` *int*     | (Optional) The number of times a failed job should be retried. Default is 0                                                                      |   |
+| `retries` *int*     | (Optional) TTL for the results in the results backend for this particular job                                                                      |   |
 | `args[]` *[]string*         | (Optional) The positional argument to pass to the SQL query in the task being executed. This can be passed multiple times, one for each argument |   |
 
 

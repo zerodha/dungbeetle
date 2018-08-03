@@ -5,12 +5,13 @@ package backends
 import (
 	"database/sql"
 	"strings"
+	"time"
 )
 
 // ResultBackend represents a results backend to which results
 // from an executed SQL job are written.
 type ResultBackend interface {
-	NewResultSet(dbName, taskName string) ResultSet
+	NewResultSet(dbName, taskName string, ttl time.Duration) ResultSet
 }
 
 // ResultSet represents the set of results from an individual

@@ -9,6 +9,9 @@ broker_address = "redis://127.0.0.1:6379/1"
 # where SQL Jobber stores results of jobs, bypassing machinery.
 state_address = "redis://127.0.0.1:6379/1"
 
+# The queue from which jobs should be proessed.
+queue = ""
+
 [result_backend]
 # This is where the results of SQL query jobs are saved.
 # type=redisql address="redis://127.0.0.1:6379/0"

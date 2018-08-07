@@ -312,7 +312,7 @@ func main() {
 	// Setup the job server.
 	jobber.Machinery, err = connectJobServer(&config.Config{
 		Broker:          viper.GetString("machinery.broker_address"),
-		DefaultQueue:    viper.GetString("queue-name"),
+		DefaultQueue:    viper.GetString("machinery.queue"),
 		ResultBackend:   viper.GetString("machinery.state_address"),
 		ResultsExpireIn: viper.GetInt("result_backend.results_ttl"),
 	}, jobber.Queries)

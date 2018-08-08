@@ -39,9 +39,13 @@ results_table = "results"
 results_ttl = 3600
 
 [db]
-# This is the original database against which SQL job queries
-# are executed. type can be 'mysql' or 'postgresql'
+# The map of the source databases against which SQL job queries
+# are executed. There can be one ore more named databases defined here, 
+# for instance, [db.db0], [db.db_name] etc., each of which can
+# be individually attached to SQLjob queries in the sql files.
+# type can be 'mysql' or 'postgresql'
 
+[db.db0]
 type = "mysql"
 host = "localhost"
 port = 3306

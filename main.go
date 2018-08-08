@@ -1,19 +1,16 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	machinery "github.com/RichardKnop/machinery/v1"
 	"github.com/RichardKnop/machinery/v1/config"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
-	"github.com/knadh/goyesql"
 	flag "github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"github.com/zerodhatech/sql-jobber/backends"
@@ -39,21 +36,12 @@ type constants struct {
 
 type taskFunc func(jobID string, taskName string, ttl int, args ...interface{}) (int64, error)
 
-// Queries represents a map of prepared SQL statements.
-type Queries map[string]Query
-
-// Query represents an SQL query with its prepared and raw forms.
-type Query struct {
-	Stmt *sql.Stmt `json:"-"`
-	Raw  string    `json:"raw"`
-}
-
 // Jobber represents a collection of the tooling required to run a job server.
 type Jobber struct {
 	Queries       Queries
 	Machinery     *machinery.Server
 	Worker        *machinery.Worker
-	DB            *sql.DB
+	DBs           DBs
 	ResultBackend backends.ResultBackend
 
 	Constants constants
@@ -74,7 +62,9 @@ type DBConfig struct {
 
 var (
 	// Global Jobber container.
-	jobber = &Jobber{}
+	jobber = &Jobber{
+		DBs: make(DBs),
+	}
 
 	sysLog = log.New(os.Stdout, "JOBBER: ", log.Ldate|log.Ltime|log.Lshortfile)
 	mLog   = log.New(os.Stdout, "MACHINERY: ", log.Ldate|log.Ltime|log.Lshortfile)
@@ -94,7 +84,7 @@ func init() {
 	viper.SetDefault("config", "config.toml")
 	viper.SetDefault("server", ":6060")
 	viper.SetDefault("sql-directory", "./sql")
-	viper.SetDefault("queue-name", "sqljob_queue")
+	viper.SetDefault("queue", "sqljob_queue")
 	viper.SetDefault("worker-name", "sqljob")
 	viper.SetDefault("worker-concurrency", 10)
 	viper.SetDefault("worker-only", false)
@@ -102,7 +92,7 @@ func init() {
 	flagSet.String("config", "config.toml", "Path to the TOML configuration file")
 	flagSet.String("server", "127.0.0.1:6060", "Web server address")
 	flagSet.String("sql-directory", "./sql", "Path to the directory with .sql scripts")
-	flagSet.String("queue-name", "sqljob_queue", "Name of the job queue to accept jobs from")
+	flagSet.String("queue", "sqljob_queue", "Name of the job queue to accept jobs from")
 	flagSet.String("worker-name", "sqljob", "Name of this worker instance")
 	flagSet.Int("worker-concurrency", 10, "Number of concurrent worker threads to run")
 	flagSet.Bool("worker-only", false, "Don't start the HTTP server and run in worker-only mode?")
@@ -118,83 +108,6 @@ func init() {
 		log.Fatalf("error reading config: %s", err)
 	}
 
-}
-
-// connectDB creates and returns a database connection.
-func connectDB(cfg DBConfig) (*sql.DB, error) {
-	var dsn string
-
-	// Different DSNs for different types.
-	if cfg.Type == dbPostgres {
-		dsn = fmt.Sprintf("user=%s dbname=%s password=%s sslmode=disable port=%d host=%s",
-			cfg.Username, cfg.DBname, cfg.Password, cfg.Port, cfg.Host)
-	} else if cfg.Type == dbMySQL {
-		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s",
-			cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.DBname)
-	}
-
-	db, err := sql.Open(cfg.Type, dsn)
-	if err != nil {
-		return nil, fmt.Errorf("Error connecting to DB: %v", err)
-	}
-
-	db.SetMaxIdleConns(cfg.MaxIdleConns)
-	db.SetMaxOpenConns(cfg.MaxActiveConns)
-	db.SetConnMaxLifetime(time.Second * cfg.ConnectTimeout)
-
-	// Ping database to check for connection issues.
-	if err = db.Ping(); err != nil {
-		return nil, fmt.Errorf("Couldn't connect to DB: %v", err)
-	}
-
-	return db, nil
-}
-
-// loadSQLqueries loads SQL queries from all the .sql
-// files in a given directory.
-func loadSQLqueries(db *sql.DB, dir string) (Queries, error) {
-	// Discover .sql files.
-	files, err := filepath.Glob(dir + "/*.sql")
-	if err != nil {
-		return nil, fmt.Errorf("Unable to read SQL directory '%s': %v", dir, err)
-	}
-
-	if len(files) == 0 {
-		return nil, fmt.Errorf("No SQL files found in '%s'", dir)
-	}
-
-	// Parse all discovered SQL files.
-	queries := make(Queries)
-	for _, f := range files {
-		q := goyesql.MustParseFile(f)
-
-		for name, s := range q {
-			var stmt *sql.Stmt
-
-			// Query already exists.
-			if _, ok := queries[string(name)]; ok {
-				return nil, fmt.Errorf("Duplicate query '%s' (%s)", name, f)
-			}
-
-			// Prepare the statement?
-			if _, ok := s.Tags["raw"]; !ok {
-				stmt, err = db.Prepare(s.Query)
-				if err != nil {
-					return nil, fmt.Errorf("Error preparing SQL query '%s': %v", name, err)
-				}
-
-				sysLog.Print("-- ", name)
-			} else {
-				sysLog.Print("-- ", name, " (raw)")
-			}
-
-			queries[name] = Query{Stmt: stmt,
-				Raw: s.Query,
-			}
-		}
-	}
-
-	return queries, nil
 }
 
 // connectJobServer creates and returns a Machinery job server
@@ -232,25 +145,35 @@ func main() {
 	}
 	sysLog.Printf("starting server '%s'", viper.GetString("worker-name"))
 
-	var (
-		dbConf DBConfig
-		err    error
-	)
-
 	jobber.Constants = constants{
 		ResultsDB: viper.GetString("result_backend.results_db"),
 	}
 
-	// Connect to the database.
-	viper.UnmarshalKey("db", &dbConf)
-	sysLog.Printf("connecting to DB %s@%s:%d", dbConf.DBname, dbConf.Host, dbConf.Port)
-	jobber.DB, err = connectDB(dbConf)
-	if err != nil {
-		log.Fatal(err)
+	// Read the database config.
+	var dbs map[string]DBConfig
+	viper.UnmarshalKey("db", &dbs)
+
+	// There should be at least one DB.
+	if len(dbs) == 0 {
+		sysLog.Fatal("found 0 databases in config")
+	}
+
+	// Connect to each DB.
+	for dbName, d := range dbs {
+		sysLog.Printf("connecting to '%s' %s@%s:%d", dbName, d.DBname, d.Host, d.Port)
+		conn, err := connectDB(d)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		jobber.DBs[dbName] = conn
 	}
 
 	// Setup the results backend.
-	backendType := viper.GetString("result_backend.type")
+	var (
+		backendType = viper.GetString("result_backend.type")
+		err         error
+	)
 	switch backendType {
 	case "redisql":
 		var cfg backends.RedisConfig
@@ -286,7 +209,7 @@ func main() {
 
 	// Parse and load SQL queries.
 	sysLog.Printf("loading SQL queries from %s", viper.GetString("sql-directory"))
-	if jobber.Queries, err = loadSQLqueries(jobber.DB, viper.GetString("sql-directory")); err != nil {
+	if jobber.Queries, err = loadSQLqueries(jobber.DBs, viper.GetString("sql-directory")); err != nil {
 		log.Fatal(err)
 	}
 	sysLog.Printf("loaded %d SQL queries", len(jobber.Queries))

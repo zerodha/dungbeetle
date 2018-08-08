@@ -101,7 +101,8 @@ func executeTask(jobID, taskName string, ttl int, args []interface{}, q *Query, 
 	if q.Stmt != nil {
 		rows, err = q.Stmt.QueryContext(ctx, args...)
 	} else {
-		rows, err = jobber.DB.QueryContext(ctx, q.Raw, args...)
+		_, db := q.DBs.GetRandom()
+		rows, err = db.QueryContext(ctx, q.Raw, args...)
 	}
 	if err != nil {
 		if err == context.Canceled {

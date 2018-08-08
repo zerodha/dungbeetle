@@ -1,9 +1,11 @@
 -- test.sql.sample
 
 -- name: get_profit_summary
+-- db: db0
 SELECT SUM(amount) AS total, entry_date FROM entries GROUP BY entry_date WHERE user_id = ?;
 
 -- name: get_profit_entries
+-- db: db1
 SELECT * FROM entries WHERE user_id = ?;
 
 -- name: get_profit_entries_by_date

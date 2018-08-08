@@ -19,7 +19,8 @@ var (
 
 // createJobSignature creates and returns a machinery tasks.Signature{} from the given job params.
 func createJobSignature(j jobReq, taskName string, ttl int, jobber *Jobber) (tasks.Signature, error) {
-	if _, ok := jobber.Queries[taskName]; !ok {
+	task, ok := jobber.Tasks[taskName]
+	if !ok {
 		return tasks.Signature{}, fmt.Errorf("unrecognized task: %s", taskName)
 	}
 
@@ -57,6 +58,12 @@ func createJobSignature(j jobReq, taskName string, ttl int, jobber *Jobber) (tas
 		eta = &e
 	}
 
+	// If there's no queue in the request, use the one attached to the task,
+	// if there's any (Machinery will use the default queue otherwise).
+	if j.Queue == "" {
+		j.Queue = task.Queue
+	}
+
 	return tasks.Signature{
 		Name:       taskName,
 		UUID:       j.JobID,
@@ -68,7 +75,7 @@ func createJobSignature(j jobReq, taskName string, ttl int, jobber *Jobber) (tas
 }
 
 // executeTask executes an SQL statement job and inserts the results into the results backend.
-func executeTask(jobID, taskName string, ttl int, args []interface{}, q *Query, jobber *Jobber) (int64, error) {
+func executeTask(jobID, taskName string, ttl int, args []interface{}, q *Task, jobber *Jobber) (int64, error) {
 	var (
 		dbName  = fmt.Sprintf(jobber.Constants.ResultsDB, jobID)
 		numRows int64

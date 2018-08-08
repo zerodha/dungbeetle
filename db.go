@@ -11,15 +11,17 @@ import (
 	"github.com/knadh/goyesql"
 )
 
-// Query represents an SQL query with its prepared and raw forms.
-type Query struct {
-	Stmt *sql.Stmt `json:"-"`
-	Raw  string    `json:"raw"`
-	DBs  DBs
+// Task represents an SQL query with its prepared and raw forms.
+type Task struct {
+	Name  string
+	Queue string
+	Stmt  *sql.Stmt `json:"-"`
+	Raw   string    `json:"raw"`
+	DBs   DBs
 }
 
-// Queries represents a map of prepared SQL statements.
-type Queries map[string]Query
+// Tasks represents a map of prepared SQL statements.
+type Tasks map[string]Task
 
 // DBs represents a map of *sql.DB connections.
 type DBs map[string]*sql.DB
@@ -124,9 +126,9 @@ func connectDB(cfg DBConfig) (*sql.DB, error) {
 	return db, nil
 }
 
-// loadSQLqueries loads SQL queries from all the .sql
+// loadSQLTasks loads SQL queries from all the .sql
 // files in a given directory.
-func loadSQLqueries(dbs DBs, dir string) (Queries, error) {
+func loadSQLTasks(dir string, dbs DBs, defQueue string) (Tasks, error) {
 	// Discover .sql files.
 	files, err := filepath.Glob(dir + "/*.sql")
 	if err != nil {
@@ -138,7 +140,7 @@ func loadSQLqueries(dbs DBs, dir string) (Queries, error) {
 	}
 
 	// Parse all discovered SQL files.
-	queries := make(Queries)
+	tasks := make(Tasks)
 	for _, f := range files {
 		q := goyesql.MustParseFile(f)
 
@@ -154,7 +156,7 @@ func loadSQLqueries(dbs DBs, dir string) (Queries, error) {
 			)
 
 			// Query already exists.
-			if _, ok := queries[string(name)]; ok {
+			if _, ok := tasks[string(name)]; ok {
 				return nil, fmt.Errorf("duplicate query '%s' (%s)", name, f)
 			}
 
@@ -170,8 +172,12 @@ func loadSQLqueries(dbs DBs, dir string) (Queries, error) {
 			}
 
 			// Prepare the statement?
-			if _, ok := s.Tags["raw"]; !ok {
+			typ := ""
+			if _, ok := s.Tags["raw"]; ok {
+				typ = "raw"
+			} else {
 				// Prepare the statement against all tagged DBs just to be sure.
+				typ = "prepared"
 				for _, db := range toAttach {
 					_, err := db.Prepare(s.Query)
 					if err != nil {
@@ -179,17 +185,25 @@ func loadSQLqueries(dbs DBs, dir string) (Queries, error) {
 					}
 				}
 
-				sysLog.Print("-- ", name, " (prepared) ", toAttach.GetNames())
-			} else {
-				sysLog.Print("-- ", name, " (raw)", toAttach.GetNames())
 			}
 
-			queries[name] = Query{Stmt: stmt,
-				Raw: s.Query,
-				DBs: toAttach,
+			// Is there a queue?
+			queue := defQueue
+			if v, ok := s.Tags["queue"]; ok {
+				queue = strings.TrimSpace(v)
+			}
+
+			sysLog.Printf("-- loaded task '%s' (%s) (db = %v) (queue = %v)", name, typ,
+				toAttach.GetNames(), queue)
+			tasks[name] = Task{
+				Name:  name,
+				Queue: queue,
+				Stmt:  stmt,
+				Raw:   s.Query,
+				DBs:   toAttach,
 			}
 		}
 	}
 
-	return queries, nil
+	return tasks, nil
 }

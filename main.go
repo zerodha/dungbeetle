@@ -38,7 +38,7 @@ type taskFunc func(jobID string, taskName string, ttl int, args ...interface{}) 
 
 // Jobber represents a collection of the tooling required to run a job server.
 type Jobber struct {
-	Queries       Queries
+	Tasks         Tasks
 	Machinery     *machinery.Server
 	Worker        *machinery.Worker
 	DBs           DBs
@@ -67,7 +67,7 @@ var (
 	}
 
 	sysLog = log.New(os.Stdout, "JOBBER: ", log.Ldate|log.Ltime|log.Lshortfile)
-	mLog   = log.New(os.Stdout, "MACHINERY: ", log.Ldate|log.Ltime|log.Lshortfile)
+	mLog   = log.New(os.Stdout, "MACHIN: ", log.Ldate|log.Ltime|log.Lshortfile)
 )
 
 func init() {
@@ -112,7 +112,7 @@ func init() {
 
 // connectJobServer creates and returns a Machinery job server
 // while registering the given SQL queries as tasks.
-func connectJobServer(cfg *config.Config, queries Queries) (*machinery.Server, error) {
+func connectJobServer(cfg *config.Config, queries Tasks) (*machinery.Server, error) {
 	server, err := machinery.NewServer(cfg)
 	if err != nil {
 		return nil, err
@@ -120,7 +120,7 @@ func connectJobServer(cfg *config.Config, queries Queries) (*machinery.Server, e
 
 	// Register the tasks with the query names.
 	for name, query := range queries {
-		server.RegisterTask(string(name), func(q Query) taskFunc {
+		server.RegisterTask(string(name), func(q Task) taskFunc {
 			return func(jobID, taskName string, ttl int, args ...interface{}) (int64, error) {
 				// Check if the job's been deleted.
 				if _, err := jobber.Machinery.GetBackend().GetState(jobID); err != nil {
@@ -209,10 +209,11 @@ func main() {
 
 	// Parse and load SQL queries.
 	sysLog.Printf("loading SQL queries from %s", viper.GetString("sql-directory"))
-	if jobber.Queries, err = loadSQLqueries(jobber.DBs, viper.GetString("sql-directory")); err != nil {
+	if jobber.Tasks, err = loadSQLTasks(viper.GetString("sql-directory"),
+		jobber.DBs, viper.GetString("machinery.queue")); err != nil {
 		log.Fatal(err)
 	}
-	sysLog.Printf("loaded %d SQL queries", len(jobber.Queries))
+	sysLog.Printf("loaded %d SQL queries", len(jobber.Tasks))
 
 	// Bind the server HTTP endpoints.
 	r := chi.NewRouter()
@@ -238,7 +239,7 @@ func main() {
 		DefaultQueue:    viper.GetString("machinery.queue"),
 		ResultBackend:   viper.GetString("machinery.state_address"),
 		ResultsExpireIn: viper.GetInt("result_backend.results_ttl"),
-	}, jobber.Queries)
+	}, jobber.Tasks)
 	if err != nil {
 		log.Fatal(err)
 	}

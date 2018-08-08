@@ -72,7 +72,7 @@ func handleGetTasksList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sendResponse(w, jobber.Queries)
+	sendResponse(w, jobber.Tasks)
 }
 
 // handleGetJobStatus returns the status of a given jobID.

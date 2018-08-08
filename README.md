@@ -25,7 +25,7 @@ Once the reports are generated, it's only natural for users to further transform
 
 ## Concepts
 #### Task
-A task is a named SQL job is loaded into the server on startup. Tasks are defined in .sql files in the simple [goyesql](https://github.com/knadh/goyesql) format. Such queries are self-contained and produce the desired final output with neatly named columns. They can take arbitrary positional arguments for execution.
+A task is a named SQL job is loaded into the server on startup. Tasks are defined in .sql files in the simple [goyesql](https://github.com/knadh/goyesql) format. Such queries are self-contained and produce the desired final output with neatly named columns. They can take arbitrary positional arguments for execution. A task can be attached to one or more specific databases defined in the configuration using the `-- db:` tag. In case of multiple databases, the query will be executed against a random one from the list.
 
 Example:
 ```sql
@@ -35,6 +35,7 @@ Example:
 SELECT SUM(amount) AS total, entry_date FROM entries GROUP BY entry_date WHERE user_id = ?;
 
 -- name: get_profit_entries
+-- db: db0, other_db
 SELECT * FROM entries WHERE user_id = ?;
 
 -- name: get_profit_entries_by_date

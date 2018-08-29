@@ -53,6 +53,7 @@ func (esc *Escaper) literal(s []byte) []byte {
 	s = bytes.Replace(s, []byte(`'`), []byte(`''`), -1)
 	s = bytes.Replace(s, []byte(`\`), []byte(`\\`), -1)
 	s = bytes.Replace(s, []byte(`"`), []byte(`\"`), -1)
+	s = bytes.Replace(s, []byte("\n"), []byte(`\n`), -1)
 
 	buf.Reset()
 	buf.Write([]byte(`'`))

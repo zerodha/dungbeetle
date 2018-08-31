@@ -17,7 +17,7 @@ Consider an application that has a very large SQL database. When there are sever
 ##### Usecase 2
 Once the reports are generated, it's only natural for users to further transform the results by slicing, sorting and filtering, generating additional queries to the primary database. To offset this load, these subsequent queries can be sent to a smaller, much faster database where the results of the original read query jobs are stored. These results are of course ephemeral and can be thrown away or expired.
 
-![sql-job-server png](https://user-images.githubusercontent.com/547147/42087713-a1ac9f20-7bb4-11e8-9ce1-08b01afc26ae.png)
+![sql-job-server png](https://user-images.githubusercontent.com/547147/44911933-43b43680-ad46-11e8-9643-c5cfab9d9d6f.png)
 
 ## Concepts
 #### Task

@@ -60,7 +60,7 @@ A pre-compiled binary can be downloaded from the [releases](releases) page.
 
 or:
 
-`go get github.com/zerodhatech/sql-job-server` to install the binary `sql-jobber` in `$GOPATH/bin`.
+`go get github.com/knadh/sql-jobber` to install the binary `sql-jobber` in `$GOPATH/bin`.
 
 ### 2) Configure
 Copy the `config.toml.sample` file as `config.toml` somewhere and edit the configuration values.

@@ -1,31 +1,27 @@
 # SQL Jobber
 > This is a highly experimental alpha version. Use with care.
 
-A highly opinionated, distributed job-queue built specifically for defering and executing SQL query jobs (reads). 
+A highly opinionated, distributed job-queue built specifically for defering and executing SQL read query jobs. 
 
 - Standalone server that exposes HTTP APIs for managing jobs and groups of jobs (list, post, status check, cancel jobs)
-- Reads SQL queries from .sql files and registers them as tasks ready to be queued
-- Supports MySQL and PostgreSQL
+- Reads SQL queries from .sql files and registers them as jobs ready to be queued
+- Supports MySQL and PostgreSQL as data sources for tasks
+- Supports MySQL and PostgreSQL as result stores for task responses
 - Written in Go and built on top of [Machinery](https://github.com/RichardKnop/machinery). Supports multi-process, multi-threaded, asynchronous distributed job queueing via a common broker backend (Redis, AMQP etc.)
-- Results from jobs are written to an in-memory SQL Database ([sqlDB](https://github.com/RedBeardLab/sqlDB), [rqlite](https://github.com/rqlite/rqlite)) that can be further queried and transformed without affecting the main SQL database
-
 
 ## Why?
-SQL Jobber was built for certain specific use cases after solutions like Celery + Python for producing SQL reports were found to be resource intensive and too slow for our needs. We wanted to be able to distribute, multi-process, multi-thread, and separate SQL query logic from our core applications and prevent from our primary SQL databases from being inundated.
 
 ##### Usecase 1
-Consider an application that has a very large SQL database. When there are several thousand concurrent users requesting reports from the database simultaneously, every second of IO delay in query execution locks up the application's threads, snowballing and overloading the application. Instead, we defer every single report request into a job queue, there by immediately freeing up the front end application. The reports are presented to users as they're executed (frontend polls the job's status and prevents the user from sending any more queries). Fixed SQL Jobber servers and worker threads also act as traffic control and prevent our primary databases from being indundated with requests.
+Consider an application that has a very large SQL database. When there are several thousand concurrent users requesting reports from the database simultaneously, every second of IO delay in query execution locks up the application's threads, snowballing and overloading the application. Instead, we defer every single report request into a job queue, there by immediately freeing up the front end application. The reports are presented to users as they're executed (frontend polls the job's status and prevents the user from sending any more queries). Fixed SQL Jobber servers and worker threads also act as traffic control and prevent the primary database from being indundated with requests.
 
 ##### Usecase 2
-Once the reports are generated, it's only natural for users to further transform the results by slicing, sorting and filtering, generating additional queries to the primary database. To offset this load, we send the results into an in-memory SQL database. Once the results of a particular query are available in the in-memory instance, it's then possible to offer users fast transformations on their reports with added SQL query goodness. These results are of course ephemeral and can be thrown away or expired.
-
+Once the reports are generated, it's only natural for users to further transform the results by slicing, sorting and filtering, generating additional queries to the primary database. To offset this load, these subsequent queries can be sent to a smaller, much faster database where the results of the original read query jobs are stored. These results are of course ephemeral and can be thrown away or expired.
 
 ![sql-job-server png](https://user-images.githubusercontent.com/547147/42087713-a1ac9f20-7bb4-11e8-9ce1-08b01afc26ae.png)
 
-
 ## Concepts
 #### Task
-A task is a named SQL job is loaded into the server on startup. Tasks are defined in .sql files in the simple [goyesql](https://github.com/knadh/goyesql) format. Such queries are self-contained and produce the desired final output with neatly named columns. They can take arbitrary positional arguments for execution. A task can be attached to one or more specific databases defined in the configuration using the `-- db:` tag. In case of multiple databases, the query will be executed against a random one from the list. It's also possible to specify a `-- queue:` tag to always route the task to a particular queue, unless it's overriden by the `queue` param when making a job request.
+A task is a named SQL job is loaded into the server on startup. Tasks are defined in .sql files in the simple [goyesql](https://github.com/knadh/goyesql) format. Such queries are self-contained and produce the desired final output with neatly named columns. They can take arbitrary positional arguments for execution. A task can be attached to one or more specific databases defined in the configuration using the `-- db:` tag. In case of multiple databases, the query will be executed against a random one from the list. A `-- queue:` tag to always route the task to a particular queue, unless it's overriden by the `queue` param when making a job request. A `-- results:` tag specifies the results backend to which the results of a task will be written. If there are multiple result backends specified, the results are written a random one.
 
 Example:
 ```sql
@@ -37,6 +33,7 @@ SELECT SUM(amount) AS total, entry_date FROM entries GROUP BY entry_date WHERE u
 -- name: get_profit_entries
 -- db: db0, other_db
 -- queue: myqueue
+-- results: my_res_db
 SELECT * FROM entries WHERE user_id = ?;
 
 -- name: get_profit_entries_by_date
@@ -53,37 +50,17 @@ Here, when the server starts, the queries `get_profit_summary` and `get_profit_e
 #### Job
 A job is an instance of a named task that has been queued to run. Each job has an ID that can be used to track its status. If an ID is not passed explicitly, it is generated internally and returned. These IDs needn not be unique, but only one job with a certain ID can be running at any given point. For the next job with the same ID to be scheduled, the previous job has to finish execution. Using non-unique IDs like this is useful in cases where users can be prevented from sending multiple requests for the same reports, like in our usecases.
 
-#### Result
-The results from an SQL query job are written into an the in-memory instance from where they can be queried and accessed like a normal SQL database. This is configured in the configuration file. The schema of the `results` table is automatically generated from the results of the original SQL query and consists of native SQLite 3 data types.
+#### Results
+The results from an SQL query job are written to a result backend (MySQL or Postgres) from where they can be further read or queried. This is configured in the configuration file. The schema of the `results` table is automatically generated from the results of the original SQL query. All fields are transformed into one of these types `BIGINT, DECIMAL, TIMESTAMP, DATE, BOOLEAN, TEXT`.
 
-##### Redis 4.0 + sqlDB
-If the results backend is sqlDB, a "database" is created for each job, with a "results" table inside it that can be queried. Cache expiry can then be Redis TTLs set on these "database" keys.
-
-Example:
-```shell
-$ redis-cli
-127.0.0.1:6379> keys *
-1) "sqldb_myjob"
-
-127.0.0.1:6379> sqlDB.EXEC sqldb_myjob "SELECT * FROM results LIMIT 1;"
-1) 1) (integer) 9999.99
-   2) "2018-01-01 00:00:00"
-   
-# Note that the column 'total' is present in the results table based on the SELECT fields
-# in the original 'get_profit_summary' query.
-
-127.0.0.1:6379> sqlDB.EXEC sqldb_myjob "SELECT total FROM results LIMIT 1;"
-1) 1) (integer) 9999.99
-```
-
-##### rqlite
-If the results backend is rqlite, the results are written into tables named after the job IDs. For result cache expiries, a simple in-memory TTL mechanism implemented in the backend. Do note that, for now, if the application is restarted, the TTL is lost and the results may never be removed.
 
 ## Installation
 ### 1) Install
-`go get github.com/zerodhatech/sql-job-server`
+A pre-compiled binary can be downloaded from the [releases](releases) page.
 
-This will install the binary `sql-jobber` to `$GOPATH/bin`. If you do not have Go installed, you can download a pre-compiled binary from the releases page.
+or:
+
+`go get github.com/zerodhatech/sql-job-server` to install the binary `sql-jobber` in `$GOPATH/bin`.
 
 ### 2) Configure
 Copy the `config.toml.sample` file as `config.toml` somewhere and edit the configuration values.
@@ -183,5 +160,4 @@ $ curl localhost:6060/tasks/get_profit_entries_by_date/jobs -H "Content-Type: ap
 ```
 
 ## License
-Copyright (c) Zerodha Technology Pvt. Ltd. All rights reserved.
 Licensed under the MIT License.

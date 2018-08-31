@@ -14,14 +14,15 @@ queue = "sqljob_queue"
 
 [results]
 # These are the result backends where the results of various SQL query jobs are saved.
-# There can be more than one backends defined here, and each job can specify where
-# it's results should be stored. If there are multiple backends and jobs don't specify
+# There can be more than one backends defined here, for eg: [results.my1], [db.my2] ...
+# Each job can specify where its results should be stored.
+# If there are multiple backends and jobs don't specify
 # a particular backend, the results will be saved to a *random* one.
 #
 # type = "postgres" dsn = "postgres://user:password@host:5432/dbname?sslmode=disable"
 # type = "mysql" dsn = "user:password@tcp(host:3306)/dbname"
 
-[results.result0]
+[results.my_results]
 type = "postgres"
 dsn = "postgres://user:password@host:5432/dbname?sslmode=disable"
 
@@ -38,13 +39,13 @@ results_ttl = 3600
 [db]
 # The map of the source databases against which SQL job queries
 # are executed. There can be one ore more named databases defined here, 
-# for instance, [db.db0], [db.db_name] etc., each of which can
+# for instance, [db.mydb1], [db.mydb2] etc., each of which can
 # be individually attached to SQLjob queries in the sql files.
 
 # type = "postgres" dsn = "postgres://user:password@host:5432/dbname?sslmode=disable"
 # type = "mysql" dsn = "user:password@tcp(host:3306)/dbname"
 
-[db.db0]
+[db.my_db]
 type = "mysql"
 dsn = "user:password@tcp(host:3306)/dbname"
 

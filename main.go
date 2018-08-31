@@ -1,5 +1,8 @@
 package main
 
+// (c) Kailash Nadh, 2018. https://nadh.in
+// MIT License.
+
 import (
 	"fmt"
 	"log"

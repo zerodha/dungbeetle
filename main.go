@@ -158,7 +158,8 @@ func main() {
 		backend, err := backends.NewSQLBackend(conn,
 			cfg.Type,
 			viper.GetString(fmt.Sprintf("results.%s.results_table", dbName)),
-			viper.GetDuration(fmt.Sprintf("results.%s.results_ttl", dbName)))
+			viper.GetDuration(fmt.Sprintf("results.%s.results_ttl", dbName))*time.Second,
+			sysLog)
 		if err != nil {
 			log.Fatalf("error initializing result backend: %v", err)
 		}

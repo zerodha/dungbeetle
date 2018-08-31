@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ type sqlDB struct {
 	resultsTable string
 	resultsTTL   time.Duration
 	ttlMap       *ttl.TTL
+	logger       *log.Logger
 
 	// The result schemas (CREATE TABLE ...) are dynamically
 	// generated everytime queries are executed based on their result columns.
@@ -55,7 +57,7 @@ type insertSchema struct {
 
 // NewSQLBackend returns a new sqlDB result backend instance.
 // It accepts an *sql.DB connection
-func NewSQLBackend(db *sql.DB, dbType string, resTable string, resTTL time.Duration) (ResultBackend, error) {
+func NewSQLBackend(db *sql.DB, dbType string, resTable string, resTTL time.Duration, l *log.Logger) (ResultBackend, error) {
 	var (
 		tt = ttl.New(time.Second * 5)
 		r  = sqlDB{
@@ -64,6 +66,7 @@ func NewSQLBackend(db *sql.DB, dbType string, resTable string, resTTL time.Durat
 			resTableSchemas: make(map[string]insertSchema),
 			schemaMutex:     sync.RWMutex{},
 			ttlMap:          tt,
+			logger:          l,
 		}
 	)
 
@@ -221,7 +224,26 @@ func (w *sqlDBWriter) WriteRow(row []interface{}) error {
 
 // Flush flushes the rows written into the sqlDB pipe.
 func (w *sqlDBWriter) Flush() error {
-	return w.tx.Commit()
+	err := w.tx.Commit()
+	if err != nil {
+		return err
+	}
+
+	// Results were saved. Apply the TTL.
+	w.backend.ttlMap.Add(w.ttl, func(tblName string, db *sql.DB, l *log.Logger) func() {
+		return func() {
+			tbl := fmt.Sprintf(w.backend.resultsTable, w.jobID)
+			_, err := w.backend.db.Exec(fmt.Sprintf(`DROP TABLE "%s"`, tbl))
+			if err != nil {
+				l.Printf("error dropping table %s after TTL: %v", tbl, err)
+				return
+			}
+
+			l.Printf("dropped table %s after TTL", tbl)
+		}
+	}(w.taskName, w.backend.db, w.backend.logger))
+
+	return nil
 }
 
 // Close closes the active sqlDB connection.

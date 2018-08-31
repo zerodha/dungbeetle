@@ -43,6 +43,7 @@ type sqlDBWriter struct {
 	rows        [][]byte
 	tx          *sql.Tx
 	ttl         time.Duration
+	tbl         string
 
 	backend *sqlDB
 }
@@ -104,6 +105,7 @@ func (s *sqlDB) NewResultSet(jobID, taskName string, ttl time.Duration) (ResultS
 		taskName: taskName,
 		ttl:      resTTL,
 		backend:  s,
+		tbl:      fmt.Sprintf(s.resultsTable, jobID),
 	}, nil
 }
 
@@ -176,18 +178,17 @@ func (w *sqlDBWriter) WriteCols(cols []string) error {
 	}
 
 	// Create the results table.
-	tbl := fmt.Sprintf(w.backend.resultsTable, w.jobID)
 	tx, err := w.backend.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(fmt.Sprintf(rSchema.dropTable, tbl)); err != nil {
+	if _, err := tx.Exec(fmt.Sprintf(rSchema.dropTable, w.tbl)); err != nil {
 		return err
 	}
 
-	if _, err := tx.Exec(fmt.Sprintf(rSchema.createTable, tbl)); err != nil {
+	if _, err := tx.Exec(fmt.Sprintf(rSchema.createTable, w.tbl)); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -216,8 +217,7 @@ func (w *sqlDBWriter) WriteRow(row []interface{}) error {
 
 		w.tx = tx
 	}
-	tbl := fmt.Sprintf(w.backend.resultsTable, w.jobID)
-	_, err := w.tx.Exec(fmt.Sprintf(rSchema.insertRow, tbl), row...)
+	_, err := w.tx.Exec(fmt.Sprintf(rSchema.insertRow, w.tbl), row...)
 
 	return err
 }
@@ -232,14 +232,13 @@ func (w *sqlDBWriter) Flush() error {
 	// Results were saved. Apply the TTL.
 	w.backend.ttlMap.Add(w.ttl, func(tblName string, db *sql.DB, l *log.Logger) func() {
 		return func() {
-			tbl := fmt.Sprintf(w.backend.resultsTable, w.jobID)
-			_, err := w.backend.db.Exec(fmt.Sprintf(`DROP TABLE "%s"`, tbl))
+			_, err := w.backend.db.Exec(fmt.Sprintf(`DROP TABLE "%s"`, w.tbl))
 			if err != nil {
-				l.Printf("error dropping table %s after TTL: %v", tbl, err)
+				l.Printf("error dropping table %s after TTL: %v", w.tbl, err)
 				return
 			}
 
-			l.Printf("dropped table %s after TTL", tbl)
+			l.Printf("dropped table %s after TTL", w.tbl)
 		}
 	}(w.taskName, w.backend.db, w.backend.logger))
 

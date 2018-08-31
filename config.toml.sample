@@ -34,7 +34,7 @@ connect_timeout = 10 # seconds
 results_table = "results_%s"
 
 # TTL in seconds after which a job's results DB disappears from Redis.
-results_ttl = 3600
+results_ttl = 30
 
 [db]
 # The map of the source databases against which SQL job queries

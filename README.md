@@ -51,7 +51,7 @@ Here, when the server starts, the queries `get_profit_summary` and `get_profit_e
 A job is an instance of a named task that has been queued to run. Each job has an ID that can be used to track its status. If an ID is not passed explicitly, it is generated internally and returned. These IDs needn not be unique, but only one job with a certain ID can be running at any given point. For the next job with the same ID to be scheduled, the previous job has to finish execution. Using non-unique IDs like this is useful in cases where users can be prevented from sending multiple requests for the same reports, like in our usecases.
 
 #### Results
-The results from an SQL query job are written to a result backend (MySQL or Postgres) from where they can be further read or queried. This is configured in the configuration file. The schema of the `results` table is automatically generated from the results of the original SQL query. All fields are transformed into one of these types `BIGINT, DECIMAL, TIMESTAMP, DATE, BOOLEAN, TEXT`.
+The results from an SQL query job are written to a result backend (MySQL or Postgres) from where they can be further read or queried. This is configured in the configuration file. The results from a job are written to a new table named after that job, where schema of the results table is automatically generated from the results of the original SQL query. All fields are transformed into one of these types `BIGINT, DECIMAL, TIMESTAMP, DATE, BOOLEAN, TEXT`.
 
 
 ## Installation

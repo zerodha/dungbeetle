@@ -12,28 +12,25 @@ state_address = "redis://127.0.0.1:6379/1"
 # The queue from which jobs should be proessed.
 queue = "sqljob_queue"
 
-[result_backend]
-# This is where the results of SQL query jobs are saved.
-# type=redisql address="redis://127.0.0.1:6379/0"
-# type=rqlite address="http://127.0.0.1:4001"
+[results]
+# These are the result backends where the results of various SQL query jobs are saved.
+# There can be more than one backends defined here, and each job can specify where
+# it's results should be stored. If there are multiple backends and jobs don't specify
+# a particular backend, the results will be saved to a *random* one.
+#
+# type = "postgres" dsn = "postgres://user:password@host:5432/dbname?sslmode=disable"
+# type = "mysql" dsn = "user:password@tcp(host:3306)/dbname"
 
-type = "redisql"
-address = "redis://127.0.0.1:6379/0"
-max_idle = 20
-max_active = 50
+[results.result0]
+type = "postgres"
+dsn = "postgres://user:password@host:5432/dbname?sslmode=disable"
 
-# Timeouts are in seconds.
-connect_timeout = 5
-read_timeout = 5
-write_timeout = 5
+max_idle = 10
+max_active = 100
+connect_timeout = 10 # seconds
 
-# Name for the rediSQL results database. %s will be substituted by the job ID.
-# Each job gets its own database.
-results_db = "sqldb_%s"
-
-# Name of the rediSQL table in which results will be wrtten.
-# This table is created inside the above database.
-results_table = "results"
+# Results table name. %s will be replaced by the job ID.
+results_table = "results_%s"
 
 # TTL in seconds after which a job's results DB disappears from Redis.
 results_ttl = 3600
@@ -43,15 +40,13 @@ results_ttl = 3600
 # are executed. There can be one ore more named databases defined here, 
 # for instance, [db.db0], [db.db_name] etc., each of which can
 # be individually attached to SQLjob queries in the sql files.
-# type can be 'mysql' or 'postgresql'
+
+# type = "postgres" dsn = "postgres://user:password@host:5432/dbname?sslmode=disable"
+# type = "mysql" dsn = "user:password@tcp(host:3306)/dbname"
 
 [db.db0]
 type = "mysql"
-host = "localhost"
-port = 3306
-name = "my_db"
-username = "root"
-password = ""
+dsn = "user:password@tcp(host:3306)/dbname"
 
 max_idle = 10
 max_active = 100

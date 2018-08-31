@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	machinery "github.com/RichardKnop/machinery/v1"
+	"github.com/RichardKnop/machinery/v1/config"
 	"github.com/RichardKnop/machinery/v1/tasks"
 	uuid "github.com/satori/go.uuid"
 )
@@ -74,16 +76,11 @@ func createJobSignature(j jobReq, taskName string, ttl int, jobber *Jobber) (tas
 	}, nil
 }
 
-// executeTask executes an SQL statement job and inserts the results into the results backend.
-func executeTask(jobID, taskName string, ttl int, args []interface{}, q *Task, jobber *Jobber) (int64, error) {
-	var (
-		dbName  = fmt.Sprintf(jobber.Constants.ResultsDB, jobID)
-		numRows int64
-	)
-
+// executeTask executes an SQL statement job and inserts the results into the result backend.
+func executeTask(jobID, taskName string, ttl time.Duration, args []interface{}, task *Task, jobber *Jobber) (int64, error) {
 	// If the job's deleted, stop.
 	if _, err := jobber.Machinery.GetBackend().GetState(jobID); err != nil {
-		return numRows, errors.New("the job was canceled")
+		return 0, errors.New("the job was canceled")
 	}
 
 	// Execute the query.
@@ -105,23 +102,36 @@ func executeTask(jobID, taskName string, ttl int, args []interface{}, q *Task, j
 		err  error
 	)
 	// Prepared query.
-	if q.Stmt != nil {
-		rows, err = q.Stmt.QueryContext(ctx, args...)
+	if task.Stmt != nil {
+		rows, err = task.Stmt.QueryContext(ctx, args...)
 	} else {
-		_, db := q.DBs.GetRandom()
-		rows, err = db.QueryContext(ctx, q.Raw, args...)
+		_, db := task.DBs.GetRandom()
+		rows, err = db.QueryContext(ctx, task.Raw, args...)
 	}
 	if err != nil {
 		if err == context.Canceled {
-			return numRows, errors.New("the job was canceled")
+			return 0, errors.New("the job was canceled")
 		}
 
-		return numRows, fmt.Errorf("task SQL query execution failed: %v", err)
+		return 0, fmt.Errorf("task SQL query execution failed: %v", err)
 	}
 	defer rows.Close()
 
-	// Results backend.
-	w := jobber.ResultBackend.NewResultSet(dbName, taskName, time.Second*time.Duration(ttl))
+	return writeResults(jobID, task, ttl, rows, jobber)
+}
+
+// writeResults writes results from an SQL query to a result backend.
+func writeResults(jobID string, task *Task, ttl time.Duration, rows *sql.Rows, jobber *Jobber) (int64, error) {
+	var numRows int64
+
+	// Result backend.
+	name, backend := task.ResultBackends.GetRandom()
+	jobber.Logger.Printf("sending results form '%s' to '%s'", jobID, name)
+
+	w, err := backend.NewResultSet(jobID, task.Name, ttl)
+	if err != nil {
+		return numRows, fmt.Errorf("error writing columns to result backend: %v", err)
+	}
 	defer w.Close()
 
 	// Get the columns in the results.
@@ -144,12 +154,12 @@ func executeTask(jobID, taskName string, ttl int, args []interface{}, q *Task, j
 
 	// Write the results columns / headers.
 	if err := w.WriteCols(cols); err != nil {
-		return numRows, err
+		return numRows, fmt.Errorf("error writing columns to result backend: %v", err)
 	}
 
 	// Gymnastics to read arbitrary types from the row.
 	var (
-		resCols     = make([][]byte, numCols)
+		resCols     = make([]interface{}, numCols)
 		resPointers = make([]interface{}, numCols)
 	)
 	for i := 0; i < numCols; i++ {
@@ -161,7 +171,9 @@ func executeTask(jobID, taskName string, ttl int, args []interface{}, q *Task, j
 		if err := rows.Scan(resPointers...); err != nil {
 			return numRows, err
 		}
-		w.WriteRow(resCols)
+		if err := w.WriteRow(resCols); err != nil {
+			return numRows, fmt.Errorf("error writing row to result backend: %v", err)
+		}
 
 		numRows++
 	}
@@ -171,4 +183,29 @@ func executeTask(jobID, taskName string, ttl int, args []interface{}, q *Task, j
 	}
 
 	return numRows, nil
+}
+
+// connectJobServer creates and returns a Machinery job server
+// while registering the given SQL queries as tasks.
+func connectJobServer(jobber *Jobber, cfg *config.Config, queries Tasks) (*machinery.Server, error) {
+	server, err := machinery.NewServer(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Register the tasks with the query names.
+	for name, query := range queries {
+		server.RegisterTask(string(name), func(q Task) taskFunc {
+			return func(jobID, taskName string, ttl int, args ...interface{}) (int64, error) {
+				// Check if the job's been deleted.
+				if _, err := jobber.Machinery.GetBackend().GetState(jobID); err != nil {
+					return 0, fmt.Errorf("Skipping deleted job: %v", err)
+				}
+
+				return executeTask(jobID, taskName, time.Duration(ttl)*time.Second, args, &q, jobber)
+			}
+		}(query))
+	}
+
+	return server, nil
 }

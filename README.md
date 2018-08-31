@@ -7,7 +7,7 @@ A highly opinionated, distributed job-queue built specifically for defering and 
 - Reads SQL queries from .sql files and registers them as tasks ready to be queued
 - Supports MySQL and PostgreSQL
 - Written in Go and built on top of [Machinery](https://github.com/RichardKnop/machinery). Supports multi-process, multi-threaded, asynchronous distributed job queueing via a common broker backend (Redis, AMQP etc.)
-- Results from jobs are written to an in-memory SQL Database ([rediSQL](https://github.com/RedBeardLab/rediSQL), [rqlite](https://github.com/rqlite/rqlite)) that can be further queried and transformed without affecting the main SQL database
+- Results from jobs are written to an in-memory SQL Database ([sqlDB](https://github.com/RedBeardLab/sqlDB), [rqlite](https://github.com/rqlite/rqlite)) that can be further queried and transformed without affecting the main SQL database
 
 
 ## Why?
@@ -56,8 +56,8 @@ A job is an instance of a named task that has been queued to run. Each job has a
 #### Result
 The results from an SQL query job are written into an the in-memory instance from where they can be queried and accessed like a normal SQL database. This is configured in the configuration file. The schema of the `results` table is automatically generated from the results of the original SQL query and consists of native SQLite 3 data types.
 
-##### Redis 4.0 + rediSQL
-If the results backend is rediSQL, a "database" is created for each job, with a "results" table inside it that can be queried. Cache expiry can then be Redis TTLs set on these "database" keys.
+##### Redis 4.0 + sqlDB
+If the results backend is sqlDB, a "database" is created for each job, with a "results" table inside it that can be queried. Cache expiry can then be Redis TTLs set on these "database" keys.
 
 Example:
 ```shell
@@ -65,14 +65,14 @@ $ redis-cli
 127.0.0.1:6379> keys *
 1) "sqldb_myjob"
 
-127.0.0.1:6379> REDISQL.EXEC sqldb_myjob "SELECT * FROM results LIMIT 1;"
+127.0.0.1:6379> sqlDB.EXEC sqldb_myjob "SELECT * FROM results LIMIT 1;"
 1) 1) (integer) 9999.99
    2) "2018-01-01 00:00:00"
    
 # Note that the column 'total' is present in the results table based on the SELECT fields
 # in the original 'get_profit_summary' query.
 
-127.0.0.1:6379> REDISQL.EXEC sqldb_myjob "SELECT total FROM results LIMIT 1;"
+127.0.0.1:6379> sqlDB.EXEC sqldb_myjob "SELECT total FROM results LIMIT 1;"
 1) 1) (integer) 9999.99
 ```
 

@@ -4,24 +4,9 @@ import (
 	"database/sql"
 	"fmt"
 	"math/rand"
-	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/knadh/goyesql"
 )
-
-// Task represents an SQL query with its prepared and raw forms.
-type Task struct {
-	Name  string
-	Queue string
-	Stmt  *sql.Stmt `json:"-"`
-	Raw   string    `json:"raw"`
-	DBs   DBs
-}
-
-// Tasks represents a map of prepared SQL statements.
-type Tasks map[string]Task
 
 // DBs represents a map of *sql.DB connections.
 type DBs map[string]*sql.DB
@@ -39,9 +24,9 @@ func (d DBs) GetRandom() (string, *sql.DB) {
 	}
 
 	i := 0
-	for _, v := range d {
+	for name, v := range d {
 		if i == stop {
-			return "", v
+			return name, v
 		}
 
 		i++
@@ -77,9 +62,9 @@ func (d DBs) GetNames() []string {
 
 // DBsFromTag splits comma separated DB names from the SQL queries file,
 // validates them against the DB map, and returns a list of valid names.
-func DBsFromTag(dbNames string, dbs DBs) (DBs, error) {
+func DBsFromTag(names string, dbs DBs) (DBs, error) {
 	var (
-		chunks = strings.Split(dbNames, ",")
+		chunks = strings.Split(names, ",")
 		newDBs = make(DBs)
 	)
 
@@ -88,7 +73,7 @@ func DBsFromTag(dbNames string, dbs DBs) (DBs, error) {
 			if db, ok := dbs[c]; ok {
 				newDBs[c] = db
 			} else {
-				return nil, fmt.Errorf("unknown db '%s'", c)
+				return nil, fmt.Errorf("unknown db %s", c)
 			}
 		}
 	}
@@ -98,20 +83,9 @@ func DBsFromTag(dbNames string, dbs DBs) (DBs, error) {
 
 // connectDB creates and returns a database connection.
 func connectDB(cfg DBConfig) (*sql.DB, error) {
-	var dsn string
-
-	// Different DSNs for different types.
-	if cfg.Type == dbPostgres {
-		dsn = fmt.Sprintf("user=%s dbname=%s password=%s sslmode=disable port=%d host=%s",
-			cfg.Username, cfg.DBname, cfg.Password, cfg.Port, cfg.Host)
-	} else if cfg.Type == dbMySQL {
-		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s",
-			cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.DBname)
-	}
-
-	db, err := sql.Open(cfg.Type, dsn)
+	db, err := sql.Open(cfg.Type, cfg.DSN)
 	if err != nil {
-		return nil, fmt.Errorf("Error connecting to DB: %v", err)
+		return nil, fmt.Errorf("error connecting to db : %v", err)
 	}
 
 	db.SetMaxIdleConns(cfg.MaxIdleConns)
@@ -120,90 +94,8 @@ func connectDB(cfg DBConfig) (*sql.DB, error) {
 
 	// Ping database to check for connection issues.
 	if err = db.Ping(); err != nil {
-		return nil, fmt.Errorf("Couldn't connect to DB: %v", err)
+		return nil, fmt.Errorf("error connecting to db : %v", err)
 	}
 
 	return db, nil
-}
-
-// loadSQLTasks loads SQL queries from all the .sql
-// files in a given directory.
-func loadSQLTasks(dir string, dbs DBs, defQueue string) (Tasks, error) {
-	// Discover .sql files.
-	files, err := filepath.Glob(dir + "/*.sql")
-	if err != nil {
-		return nil, fmt.Errorf("unable to read SQL directory '%s': %v", dir, err)
-	}
-
-	if len(files) == 0 {
-		return nil, fmt.Errorf("no SQL files found in '%s'", dir)
-	}
-
-	// Parse all discovered SQL files.
-	tasks := make(Tasks)
-	for _, f := range files {
-		q := goyesql.MustParseFile(f)
-
-		for name, s := range q {
-			var (
-				stmt *sql.Stmt
-
-				// A map of DBs are attached to every query. This can be
-				// DBs tagged specifically to queries in the SQL file,
-				// or will be the map of all avaliable DBs. During execution
-				// one of these DBs will be picked randomly.
-				toAttach DBs
-			)
-
-			// Query already exists.
-			if _, ok := tasks[string(name)]; ok {
-				return nil, fmt.Errorf("duplicate query '%s' (%s)", name, f)
-			}
-
-			// Are there specific DB's tagged to the query?
-			if dbTag, ok := s.Tags["db"]; ok {
-				toAttach, err = DBsFromTag(dbTag, dbs)
-				if err != nil {
-					return nil, fmt.Errorf("error with query '%s' (%s): %v", name, f, err)
-				}
-			} else {
-				// No specific DBs. Attach all.
-				toAttach = dbs
-			}
-
-			// Prepare the statement?
-			typ := ""
-			if _, ok := s.Tags["raw"]; ok {
-				typ = "raw"
-			} else {
-				// Prepare the statement against all tagged DBs just to be sure.
-				typ = "prepared"
-				for _, db := range toAttach {
-					_, err := db.Prepare(s.Query)
-					if err != nil {
-						return nil, fmt.Errorf("error preparing SQL query '%s': %v", name, err)
-					}
-				}
-
-			}
-
-			// Is there a queue?
-			queue := defQueue
-			if v, ok := s.Tags["queue"]; ok {
-				queue = strings.TrimSpace(v)
-			}
-
-			sysLog.Printf("-- loaded task '%s' (%s) (db = %v) (queue = %v)", name, typ,
-				toAttach.GetNames(), queue)
-			tasks[name] = Task{
-				Name:  name,
-				Queue: queue,
-				Stmt:  stmt,
-				Raw:   s.Query,
-				DBs:   toAttach,
-			}
-		}
-	}
-
-	return tasks, nil
 }

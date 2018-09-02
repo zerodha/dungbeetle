@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/RichardKnop/machinery/v1/tasks"
@@ -12,6 +13,9 @@ import (
 
 // groupConcurrency represents the concurrency factor for job groups.
 const groupConcurrency = 5
+
+// regexValidateName represents the character classes allowed in a job ID.
+var regexValidateName, _ = regexp.Compile("(?i)^[a-z0-9-_:]+$")
 
 type jobReq struct {
 	TaskName string   `json:"task"`
@@ -167,6 +171,11 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 	if err := decoder.Decode(&job); err != nil {
 		sysLog.Printf("error parsing JSON body: %v", err)
 		sendErrorResponse(w, "error parsing JSON body", http.StatusBadRequest)
+		return
+	}
+
+	if !regexValidateName.Match([]byte(job.JobID)) {
+		sendErrorResponse(w, "Invalid characters in the `job_id`.", http.StatusBadRequest)
 		return
 	}
 

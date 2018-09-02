@@ -100,12 +100,18 @@ func (s *sqlDB) NewResultSet(jobID, taskName string, ttl time.Duration) (ResultS
 		resTTL = s.resultsTTL
 	}
 
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+
 	return &sqlDBWriter{
 		jobID:    jobID,
 		taskName: taskName,
 		ttl:      resTTL,
 		backend:  s,
 		tbl:      fmt.Sprintf(s.resultsTable, jobID),
+		tx:       tx,
 	}, nil
 }
 
@@ -209,14 +215,6 @@ func (w *sqlDBWriter) WriteRow(row []interface{}) error {
 		return fmt.Errorf("column types for '%s' have not been registered", w.taskName)
 	}
 
-	if w.tx == nil {
-		tx, err := w.backend.db.Begin()
-		if err != nil {
-			return err
-		}
-
-		w.tx = tx
-	}
 	_, err := w.tx.Exec(fmt.Sprintf(rSchema.insertRow, w.tbl), row...)
 
 	return err

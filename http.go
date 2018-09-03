@@ -233,7 +233,7 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create the group and send it.
-	taskGroup := tasks.NewGroup(sigs...)
+	taskGroup, _ := tasks.NewGroup(sigs...)
 
 	// If there's an incoming group ID, overwrite the generated one.
 	if group.GroupID != "" {

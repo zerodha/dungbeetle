@@ -15,9 +15,9 @@ import (
 	mlog "github.com/RichardKnop/machinery/v1/log"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
+	"github.com/knadh/sql-jobber/backends"
 	flag "github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"github.com/zerodhatech/sql-jobber/backends"
 
 	// MySQL and Postgres drivers.
 	_ "github.com/go-sql-driver/mysql"

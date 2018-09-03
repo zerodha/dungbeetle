@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/zerodhatech/sql-jobber/backends/ttl"
+	"github.com/knadh/sql-jobber/backends/ttl"
 )
 
 const (

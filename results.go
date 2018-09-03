@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"strings"
 
-	"github.com/zerodhatech/sql-jobber/backends"
+	"github.com/knadh/sql-jobber/backends"
 )
 
 // ResultBackends represents a map of *sql.DB connections.

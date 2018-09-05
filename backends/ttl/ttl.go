@@ -8,9 +8,15 @@ import (
 	"time"
 )
 
+// Item represents the TTL time and the function to execute.
+type item struct {
+	ttl time.Time
+	f   func()
+}
+
 // TTL represents an instance of the TTL package.
 type TTL struct {
-	ttlMap   map[time.Time]func()
+	ttlMap   map[string]item
 	mut      sync.Mutex
 	interval time.Duration
 }
@@ -18,15 +24,19 @@ type TTL struct {
 // New returns a new TTL instance.
 func New(interval time.Duration) *TTL {
 	return &TTL{
-		ttlMap:   make(map[time.Time]func()),
+		ttlMap:   make(map[string]item),
 		interval: interval,
 	}
 }
 
 // Add adds a new timer and a ballback.
-func (t *TTL) Add(d time.Duration, f func()) {
+func (t *TTL) Add(id string, d time.Duration, f func()) {
 	t.mut.Lock()
-	t.ttlMap[time.Now().Add(d)] = f
+	delete(t.ttlMap, id)
+	t.ttlMap[id] = item{
+		ttl: time.Now().Add(d),
+		f:   f,
+	}
 	t.mut.Unlock()
 }
 
@@ -36,10 +46,10 @@ func (t *TTL) Add(d time.Duration, f func()) {
 func (t *TTL) Run() {
 	for now := range time.Tick(t.interval) {
 		t.mut.Lock()
-		for d, f := range t.ttlMap {
-			if d.Before(now) {
-				f()
-				delete(t.ttlMap, d)
+		for id, i := range t.ttlMap {
+			if i.ttl.Before(now) {
+				i.f()
+				delete(t.ttlMap, id)
 			}
 		}
 		t.mut.Unlock()

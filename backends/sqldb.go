@@ -60,18 +60,18 @@ type insertSchema struct {
 // It accepts an *sql.DB connection
 func NewSQLBackend(db *sql.DB, dbType string, resTable string, resTTL time.Duration, l *log.Logger) (ResultBackend, error) {
 	var (
-		tt = ttl.New(time.Second * 5)
-		r  = sqlDB{
+		r = sqlDB{
 			db:              db,
 			dbType:          dbType,
 			resTableSchemas: make(map[string]insertSchema),
 			schemaMutex:     sync.RWMutex{},
-			ttlMap:          tt,
 			logger:          l,
 		}
 	)
 
-	go tt.Run()
+	// Thie duration is not the TTL but the TTL check interval.
+	r.ttlMap = ttl.New(time.Second * 5)
+	go r.ttlMap.Run()
 
 	// Config.
 	if resTable != "" {
@@ -228,7 +228,7 @@ func (w *sqlDBWriter) Flush() error {
 	}
 
 	// Results were saved. Apply the TTL.
-	w.backend.ttlMap.Add(w.ttl, func(tblName string, db *sql.DB, l *log.Logger) func() {
+	w.backend.ttlMap.Add(w.jobID, w.ttl, func(tblName string, db *sql.DB, l *log.Logger) func() {
 		return func() {
 			_, err := w.backend.db.Exec(fmt.Sprintf(`DROP TABLE "%s"`, w.tbl))
 			if err != nil {

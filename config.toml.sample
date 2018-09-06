@@ -33,8 +33,9 @@ connect_timeout = 10 # seconds
 # Results table name. %s will be replaced by the job ID.
 results_table = "results_%s"
 
-# TTL in seconds after which a job's results DB disappears from Redis.
-results_ttl = 30
+# TTL in seconds after which a job entry and its meta disappears from the Machinery
+# store. This does not remove results from the results DB.
+results_ttl = 3600
 
 [db]
 # The map of the source databases against which SQL job queries

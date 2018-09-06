@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/knadh/sql-jobber/backends/ttl"
 )
 
 const (
@@ -22,8 +20,6 @@ type sqlDB struct {
 	db           *sql.DB
 	dbType       string
 	resultsTable string
-	resultsTTL   time.Duration
-	ttlMap       *ttl.TTL
 	logger       *log.Logger
 
 	// The result schemas (CREATE TABLE ...) are dynamically
@@ -42,7 +38,6 @@ type sqlDBWriter struct {
 	cols        []string
 	rows        [][]byte
 	tx          *sql.Tx
-	ttl         time.Duration
 	tbl         string
 
 	backend *sqlDB
@@ -58,7 +53,7 @@ type insertSchema struct {
 
 // NewSQLBackend returns a new sqlDB result backend instance.
 // It accepts an *sql.DB connection
-func NewSQLBackend(db *sql.DB, dbType string, resTable string, resTTL time.Duration, l *log.Logger) (ResultBackend, error) {
+func NewSQLBackend(db *sql.DB, dbType string, resTable string, l *log.Logger) (ResultBackend, error) {
 	var (
 		r = sqlDB{
 			db:              db,
@@ -69,21 +64,11 @@ func NewSQLBackend(db *sql.DB, dbType string, resTable string, resTTL time.Durat
 		}
 	)
 
-	// Thie duration is not the TTL but the TTL check interval.
-	r.ttlMap = ttl.New(time.Second * 5)
-	go r.ttlMap.Run()
-
 	// Config.
 	if resTable != "" {
 		r.resultsTable = resTable
 	} else {
 		r.resultsTable = "results_%s"
-	}
-
-	if resTTL.Seconds() > 0 {
-		r.resultsTTL = resTTL
-	} else {
-		r.resultsTTL = 3600
 	}
 
 	return &r, nil
@@ -93,13 +78,6 @@ func NewSQLBackend(db *sql.DB, dbType string, resTable string, resTTL time.Durat
 // A new instance should be acquired for every individual job result
 // to be written to the backend and then thrown away.
 func (s *sqlDB) NewResultSet(jobID, taskName string, ttl time.Duration) (ResultSet, error) {
-	var resTTL time.Duration
-	if ttl.Seconds() > 0 {
-		resTTL = ttl
-	} else {
-		resTTL = s.resultsTTL
-	}
-
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
@@ -108,7 +86,6 @@ func (s *sqlDB) NewResultSet(jobID, taskName string, ttl time.Duration) (ResultS
 	return &sqlDBWriter{
 		jobID:    jobID,
 		taskName: taskName,
-		ttl:      resTTL,
 		backend:  s,
 		tbl:      fmt.Sprintf(s.resultsTable, jobID),
 		tx:       tx,
@@ -226,19 +203,6 @@ func (w *sqlDBWriter) Flush() error {
 	if err != nil {
 		return err
 	}
-
-	// Results were saved. Apply the TTL.
-	w.backend.ttlMap.Add(w.jobID, w.ttl, func(tblName string, db *sql.DB, l *log.Logger) func() {
-		return func() {
-			_, err := w.backend.db.Exec(fmt.Sprintf(`DROP TABLE "%s"`, w.tbl))
-			if err != nil {
-				l.Printf("error dropping table %s after TTL: %v", w.tbl, err)
-				return
-			}
-
-			l.Printf("dropped table %s after TTL", w.tbl)
-		}
-	}(w.taskName, w.backend.db, w.backend.logger))
 
 	return nil
 }

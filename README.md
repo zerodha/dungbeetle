@@ -97,7 +97,7 @@ POST requests accept raw JSON bodies. The JSON params are listed below.
 | `queue` *string*     | (Optional) Queue to send the job to. Only workers listening on this queue will receive the jobs.                                                                                                              |   |
 | `eta` *string*         | (Optional) Timestamp (`yyyy-mm-dd hh:mm:ss`) at which the job should start. If this is not provided, the job is queued immediately.               |   |
 | `retries` *int*     | (Optional) The number of times a failed job should be retried. Default is 0                                                                      |   |
-| `ttl` *int*     | (Optional) TTL for the results in the results backend for this particular job                                                                      |   |
+| ~~`ttl`~~ *int*     | (Optional) TTL for the results in the results backend for this particular job. This is NOT supported by the default SQL DB result backend |   |
 | `args[]` *[]string*         | (Optional) The positional argument to pass to the SQL query in the task being executed. This can be passed multiple times, one for each argument |   |
 
 

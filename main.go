@@ -83,16 +83,15 @@ func init() {
 	viper.SetDefault("config", "config.toml")
 	viper.SetDefault("server", ":6060")
 	viper.SetDefault("sql-directory", "./sql")
-	viper.SetDefault("queue", "sqljob_queue")
-	viper.SetDefault("worker-name", "sqljob")
+	viper.SetDefault("worker-name", "sqljobber")
 	viper.SetDefault("worker-concurrency", 10)
 	viper.SetDefault("worker-only", false)
 
 	flagSet.String("config", "config.toml", "Path to the TOML configuration file")
 	flagSet.String("server", "127.0.0.1:6060", "Web server address")
 	flagSet.String("sql-directory", "./sql", "Path to the directory with .sql scripts")
-	flagSet.String("queue", "sqljob_queue", "Name of the job queue to accept jobs from")
-	flagSet.String("worker-name", "sqljob", "Name of this worker instance")
+	flagSet.String("queue", "default_queue", "Name of the job queue to accept jobs from")
+	flagSet.String("worker-name", "sqljobber", "Name of this worker instance")
 	flagSet.Int("worker-concurrency", 10, "Number of concurrent worker threads to run")
 	flagSet.Bool("worker-only", false, "Don't start the HTTP server and run in worker-only mode?")
 	flagSet.Bool("version", false, "Current version of the build")
@@ -117,7 +116,15 @@ func main() {
 		sysLog.Printf("commit: %v\nBuild: %v", buildVersion, buildDate)
 		return
 	}
-	sysLog.Printf("starting server %s", viper.GetString("worker-name"))
+
+	mode := "default"
+	if viper.GetBool("worker-only") {
+		mode = "worker only"
+	}
+	sysLog.Printf("starting server %s (queue = %s) in %s mode",
+		viper.GetString("worker-name"),
+		viper.GetString("queue"),
+		mode)
 
 	// Source and result backend DBs.
 	var (
@@ -170,7 +177,7 @@ func main() {
 	// Parse and load SQL queries.
 	sysLog.Printf("loading SQL queries from %s", viper.GetString("sql-directory"))
 	if jobber.Tasks, err = loadSQLTasks(viper.GetString("sql-directory"),
-		jobber.DBs, jobber.ResultBackends, viper.GetString("machinery.queue")); err != nil {
+		jobber.DBs, jobber.ResultBackends, viper.GetString("queue")); err != nil {
 		sysLog.Fatal(err)
 	}
 	sysLog.Printf("loaded %d SQL queries", len(jobber.Tasks))
@@ -196,7 +203,7 @@ func main() {
 	// Setup the job server.
 	jobber.Machinery, err = connectJobServer(jobber, &config.Config{
 		Broker:          viper.GetString("machinery.broker_address"),
-		DefaultQueue:    viper.GetString("machinery.queue"),
+		DefaultQueue:    viper.GetString("queue"),
 		ResultBackend:   viper.GetString("machinery.state_address"),
 		ResultsExpireIn: viper.GetInt("result_backend.results_ttl"),
 	}, jobber.Tasks)
@@ -211,8 +218,6 @@ func main() {
 			sysLog.Println(http.ListenAndServe(viper.GetString("server"), r))
 			os.Exit(0)
 		}()
-	} else {
-		sysLog.Printf("worker-only mode (no HTTP server)")
 	}
 
 	jobber.Worker = jobber.Machinery.NewWorker(viper.GetString("worker-name"),

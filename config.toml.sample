@@ -9,9 +9,6 @@ broker_address = "redis://127.0.0.1:6379/1"
 # where SQL Jobber stores results of jobs, bypassing machinery.
 state_address = "redis://127.0.0.1:6379/1"
 
-# The queue from which jobs should be proessed.
-queue = "sqljob_queue"
-
 [results]
 # These are the result backends where the results of various SQL query jobs are saved.
 # There can be more than one backends defined here, for eg: [results.my1], [db.my2] ...

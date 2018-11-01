@@ -63,6 +63,7 @@ var (
 
 	// Global Jobber container.
 	jobber = &Jobber{
+		Tasks:          make(Tasks),
 		DBs:            make(DBs),
 		ResultBackends: make(ResultBackends),
 		Logger:         sysLog,
@@ -82,14 +83,14 @@ func init() {
 	viper.SetConfigType("toml")
 	viper.SetDefault("config", "config.toml")
 	viper.SetDefault("server", ":6060")
-	viper.SetDefault("sql-directory", "./sql")
+	viper.SetDefault("sql-directory", []string{"./sql"})
 	viper.SetDefault("worker-name", "sqljobber")
 	viper.SetDefault("worker-concurrency", 10)
 	viper.SetDefault("worker-only", false)
 
 	flagSet.String("config", "config.toml", "Path to the TOML configuration file")
 	flagSet.String("server", "127.0.0.1:6060", "Web server address")
-	flagSet.String("sql-directory", "./sql", "Path to the directory with .sql scripts")
+	flagSet.StringSlice("sql-directory", []string{"./sql"}, "Path to directory with .sql scripts. Can be specified multiple times")
 	flagSet.String("queue", "default_queue", "Name of the job queue to accept jobs from")
 	flagSet.String("worker-name", "sqljobber", "Name of this worker instance")
 	flagSet.Int("worker-concurrency", 10, "Number of concurrent worker threads to run")
@@ -173,14 +174,24 @@ func main() {
 		jobber.ResultBackends[dbName] = backend
 	}
 
-	var err error
 	// Parse and load SQL queries.
-	sysLog.Printf("loading SQL queries from %s", viper.GetString("sql-directory"))
-	if jobber.Tasks, err = loadSQLTasks(viper.GetString("sql-directory"),
-		jobber.DBs, jobber.ResultBackends, viper.GetString("queue")); err != nil {
-		sysLog.Fatal(err)
+	for _, d := range viper.GetStringSlice("sql-directory") {
+		sysLog.Printf("loading SQL queries from directory: %s", d)
+		tasks, err := loadSQLTasks(d, jobber.DBs, jobber.ResultBackends, viper.GetString("queue"))
+		if err != nil {
+			sysLog.Fatal(err)
+		}
+
+		for t, q := range tasks {
+			if _, ok := jobber.Tasks[t]; ok {
+				sysLog.Fatalf("duplicate task %s", t)
+			}
+
+			jobber.Tasks[t] = q
+		}
+		sysLog.Printf("loaded %d SQL queries from %s", len(tasks), d)
 	}
-	sysLog.Printf("loaded %d SQL queries", len(jobber.Tasks))
+	sysLog.Printf("loaded %d tasks in total", len(jobber.Tasks))
 
 	// Bind the server HTTP endpoints.
 	r := chi.NewRouter()
@@ -201,6 +212,7 @@ func main() {
 	r.Get("/groups/{groupID}", handleGetGroupStatus)
 
 	// Setup the job server.
+	var err error
 	jobber.Machinery, err = connectJobServer(jobber, &config.Config{
 		Broker:          viper.GetString("machinery.broker_address"),
 		DefaultQueue:    viper.GetString("queue"),

@@ -167,15 +167,20 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 		job      jobReq
 	)
 
+	if r.ContentLength == 0 {
+		sendErrorResponse(w, "request body is empty", http.StatusBadRequest)
+		return
+	}
+
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&job); err != nil {
-		sysLog.Printf("error parsing JSON body: %v", err)
-		sendErrorResponse(w, "error parsing JSON body", http.StatusBadRequest)
+		sysLog.Printf("error parsing request JSON: %v", err)
+		sendErrorResponse(w, "error parsing request JSON", http.StatusBadRequest)
 		return
 	}
 
 	if !regexValidateName.Match([]byte(job.JobID)) {
-		sendErrorResponse(w, "Invalid characters in the `job_id`.", http.StatusBadRequest)
+		sendErrorResponse(w, "invalid characters in the `job_id`", http.StatusBadRequest)
 		return
 	}
 

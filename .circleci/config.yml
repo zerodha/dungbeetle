@@ -1,0 +1,28 @@
+# Golang CircleCI 2.0 configuration file
+#
+# Check https://circleci.com/docs/2.0/language-go/ for more details
+version: 2
+jobs:
+  build:
+    docker:
+      # Golang
+      - image: circleci/golang:1.11
+
+      # Redis
+      - image: circleci/redis:latest
+      
+      # Specify service dependencies here if necessary
+      - image: circleci/postgres:9.4
+        environment:
+          POSTGRES_USER: root
+          POSTGRES_DB: circleci_db
+          POSTGRES_PASSWORD: 123456
+
+    steps:
+      - checkout
+
+      # Build and test
+      - run: go build
+
+      # Make sure main.go init fn picks config file from circle config
+      - run: go test -v ./... --config ./.circleci/config.toml

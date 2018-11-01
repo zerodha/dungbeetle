@@ -33,7 +33,7 @@ require (
 	github.com/spf13/pflag v1.0.2
 	github.com/spf13/viper v1.1.0
 	github.com/streadway/amqp v0.0.0-20180806233856-70e15c650864 // indirect
-	github.com/stretchr/testify v1.2.2 // indirect
+	github.com/stretchr/testify v1.2.2
 	github.com/stvp/tempredis v0.0.0-20160122230306-83f7aae7ea49 // indirect
 	golang.org/x/net v0.0.0-20180826012351-8a410e7b638d // indirect
 	golang.org/x/sys v0.0.0-20180831094639-fa5fdf94c789 // indirect

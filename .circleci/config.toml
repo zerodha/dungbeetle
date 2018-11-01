@@ -1,0 +1,55 @@
+[circle_ci.db]
+type = "postgres"
+dsn = "postgres://root:123456@localhost:5432/circleci_db?sslmode=disable"
+
+# Redis addresses are denoted as: redis://password@host:port/db_num
+[machinery]
+broker_address = "redis://127.0.0.1:6379/1"
+
+# This is where Machinery stores it's job states.
+# In Machinery's terminology, this is its "result backend"
+# and is not to be confused with the SQL Jobber's 'result_backend'
+# where SQL Jobber stores results of jobs, bypassing machinery.
+state_address = "redis://127.0.0.1:6379/1"
+
+[results]
+# These are the result backends where the results of various SQL query jobs are saved.
+# There can be more than one backends defined here, for eg: [results.my1], [db.my2] ...
+# Each job can specify where its results should be stored.
+# If there are multiple backends and jobs don't specify
+# a particular backend, the results will be saved to a *random* one.
+#
+# type = "postgres" dsn = "postgres://user:password@host:5432/dbname?sslmode=disable"
+# type = "mysql" dsn = "user:password@tcp(host:3306)/dbname"
+
+[results.my_results]
+type = "postgres"
+dsn = "postgres://root:123456@localhost:5432/my_results?sslmode=disable"
+
+max_idle = 10
+max_active = 100
+connect_timeout = 10 # seconds
+
+# Results table name. %s will be replaced by the job ID.
+results_table = "results_%s"
+
+# TTL in seconds after which a job entry and its meta disappears from the Machinery
+# store. This does not remove results from the results DB.
+results_ttl = 3600
+
+[db]
+# The map of the source databases against which SQL job queries
+# are executed. There can be one ore more named databases defined here, 
+# for instance, [db.mydb1], [db.mydb2] etc., each of which can
+# be individually attached to SQLjob queries in the sql files.
+
+# type = "postgres" dsn = "postgres://user:password@host:5432/dbname?sslmode=disable"
+# type = "mysql" dsn = "user:password@tcp(host:3306)/dbname"
+
+[db.my_db]
+type = "postgres"
+dsn = "postgres://root:123456@localhost:5432/my_db?sslmode=disable"
+
+max_idle = 10
+max_active = 100
+connect_timeout = 10 # seconds

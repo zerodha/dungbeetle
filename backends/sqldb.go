@@ -255,6 +255,10 @@ func (s *sqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 			typ = "DATE"
 		case "BOOLEAN": // Postgres, MySQL
 			typ = "BOOLEAN"
+		case "JSON", "JSONB": // Postgres
+			if s.dbType != dbTypePostgres {
+				typ = "TEXT"
+			}
 		default:
 			typ = "TEXT"
 		}

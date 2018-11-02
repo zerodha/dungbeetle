@@ -1,4 +1,7 @@
 # SQL Jobber
+
+![CircleCI (all branches)](https://img.shields.io/circleci/project/github/knadh/sql-jobber.svg)
+
 > This is a highly experimental alpha version. Use with care.
 
 A highly opinionated, distributed job-queue built specifically for defering and executing SQL read query jobs. 

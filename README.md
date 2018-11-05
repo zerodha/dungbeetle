@@ -162,5 +162,17 @@ $ curl localhost:6060/tasks/get_profit_entries_by_date/jobs -H "Content-Type: ap
 $ curl localhost:6060/tasks/get_profit_entries_by_date/jobs -H "Content-Type: application/json" --data '{"job_id": "myjob", "queue": "low_priority"}'
 ```
 
+## Running tests locally
+
+Copy test config.
+```shell
+cp ./.circleci/config.toml ./config_test.toml
+```
+
+Modify config file so that database dsn(s), redis addresses matches local setup.
+```shell
+go test -v ./... --config ./config_test.toml
+```
+
 ## License
 Licensed under the MIT License.

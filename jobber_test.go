@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,8 +17,6 @@ import (
 	"github.com/RichardKnop/machinery/v1/config"
 	"github.com/go-chi/chi"
 	"github.com/knadh/sql-jobber/backends"
-	flag "github.com/spf13/pflag"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -34,62 +31,43 @@ var (
 // createTempDBs create temporary databases
 func createTempDBs(dbs, resDBs map[string]DBConfig) {
 	tempConn, err := connectDB(DBConfig{
-		Type: viper.GetString("circle_ci.db.type"),
-		DSN:  viper.GetString("circle_ci.db.dsn"),
+		Type: ko.String("circle_ci.db.type"),
+		DSN:  ko.String("circle_ci.db.dsn"),
 	})
 	if err != nil {
-		log.Fatal(err)
+		sysLog.Fatal(err)
 	}
 	defer tempConn.Close()
 
 	// Create the temp source postgres dbs.
 	for dbName := range dbs {
 		if _, err := tempConn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName)); err != nil {
-			log.Fatalf("error dropping temp database '%s': %v", dbName, err)
+			sysLog.Fatalf("error dropping temp database '%s': %v", dbName, err)
 		}
 		if _, err := tempConn.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)); err != nil {
-			log.Fatalf("error creating temp database '%s': %v", dbName, err)
+			sysLog.Fatalf("error creating temp database '%s': %v", dbName, err)
 		}
 	}
 
 	// Create the temp result postgres dbs.
 	for dbName := range resDBs {
 		if _, err := tempConn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName)); err != nil {
-			log.Fatalf("error dropping temp database '%s': %v", dbName, err)
+			sysLog.Fatalf("error dropping temp database '%s': %v", dbName, err)
 		}
 		if _, err := tempConn.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)); err != nil {
-			log.Fatalf("error creating temp database '%s': %v", dbName, err)
+			sysLog.Fatalf("error creating temp database '%s': %v", dbName, err)
 		}
 	}
 }
 
 func init() {
-	// main.go init() runs first, so we need to make sure it parses the dummy config file
-	// Command line flags.
-	flagSet := flag.NewFlagSet("config", flag.ContinueOnError)
-	flagSet.Usage = func() {
-		sysLog.Println("SQL Jobber")
-		sysLog.Println(flagSet.FlagUsages())
-		os.Exit(0)
-	}
-
-	flagSet.String("config", "config.toml", "Path to the TOML configuration file")
-	flagSet.Parse(os.Args[1:])
-	viper.BindPFlags(flagSet)
-
-	viper.SetConfigFile(viper.GetString("config"))
-	err := viper.ReadInConfig()
-	if err != nil {
-		log.Fatalf("Error reading config: %s", err)
-	}
-
 	// Source and result backend DBs.
 	var (
 		dbs    map[string]DBConfig
 		resDBs map[string]DBConfig
 	)
-	viper.UnmarshalKey("db", &dbs)
-	viper.UnmarshalKey("results", &resDBs)
+	ko.Unmarshal("db", &dbs)
+	ko.Unmarshal("results", &resDBs)
 
 	// There should be at least one DB.
 	if len(dbs) == 0 {
@@ -107,12 +85,12 @@ func init() {
 		sysLog.Printf("connecting to source %s DB %s", cfg.Type, dbName)
 		conn, err := connectDB(cfg)
 		if err != nil {
-			log.Fatal(err)
+			sysLog.Fatal(err)
 		}
 
 		// Create entries schema
 		if _, err := conn.Exec("CREATE TABLE entries (id BIGSERIAL PRIMARY KEY, amount REAL, user_id VARCHAR(6), entry_date DATE, timestamp TIMESTAMP);"); err != nil {
-			log.Fatalf("error running schema: %v", err)
+			sysLog.Fatalf("error running schema: %v", err)
 		}
 
 		jobber.DBs[dbName] = conn
@@ -123,7 +101,7 @@ func init() {
 		sysLog.Printf("connecting to result backend %s DB %s", cfg.Type, dbName)
 		conn, err := connectDB(cfg)
 		if err != nil {
-			log.Fatal(err)
+			sysLog.Fatal(err)
 		}
 
 		// retain result db to perform queries on this db
@@ -132,19 +110,19 @@ func init() {
 		// Create a new backend instance.
 		backend, err := backends.NewSQLBackend(conn,
 			cfg.Type,
-			viper.GetString(fmt.Sprintf("results.%s.results_table", dbName)),
+			ko.String(fmt.Sprintf("results.%s.results_table", dbName)),
 			sysLog)
 		if err != nil {
-			log.Fatalf("error initializing result backend: %v", err)
+			sysLog.Fatalf("error initializing result backend: %v", err)
 		}
 
 		jobber.ResultBackends[dbName] = backend
 	}
 
 	// Parse and load SQL queries.
-	for _, d := range viper.GetStringSlice("sql-directory") {
+	for _, d := range ko.Strings("sql-directory") {
 		sysLog.Printf("loading SQL queries from directory: %s", d)
-		tasks, err := loadSQLTasks(d, jobber.DBs, jobber.ResultBackends, viper.GetString("queue"))
+		tasks, err := loadSQLTasks(d, jobber.DBs, jobber.ResultBackends, ko.String("queue"))
 		if err != nil {
 			sysLog.Fatal(err)
 		}
@@ -173,18 +151,19 @@ func init() {
 	testRouter.Get("/groups/{groupID}", handleGetGroupStatus)
 
 	// Setup the job server.
+	var err error
 	jobber.Machinery, err = connectJobServer(jobber, &config.Config{
-		Broker:          viper.GetString("machinery.broker_address"),
-		DefaultQueue:    viper.GetString("queue"),
-		ResultBackend:   viper.GetString("machinery.state_address"),
-		ResultsExpireIn: viper.GetInt("result_backend.results_ttl"),
+		Broker:          ko.String("machinery.broker_address"),
+		DefaultQueue:    ko.String("queue"),
+		ResultBackend:   ko.String("machinery.state_address"),
+		ResultsExpireIn: ko.Int("result_backend.results_ttl"),
 	}, jobber.Tasks)
 	if err != nil {
-		log.Fatal(err)
+		sysLog.Fatal(err)
 	}
 
-	jobber.Worker = jobber.Machinery.NewWorker(viper.GetString("worker-name"),
-		viper.GetInt("worker-concurrency"))
+	jobber.Worker = jobber.Machinery.NewWorker(ko.String("worker-name"),
+		ko.Int("worker-concurrency"))
 	go jobber.Worker.Launch()
 }
 
@@ -273,7 +252,7 @@ func TestPostTask(t *testing.T) {
 	for rows.Next() {
 		var r row
 		if err := rows.Scan(&r.columnName, &r.dataType); err != nil {
-			log.Fatal(err)
+			sysLog.Fatal(err)
 		}
 
 		rs = append(rs, r)

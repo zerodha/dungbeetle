@@ -5,6 +5,10 @@ package main
 
 import (
 	"fmt"
+	"github.com/knadh/koanf"
+	"github.com/knadh/koanf/parsers/toml"
+	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/providers/posflag"
 	"log"
 	"net/http"
 	"os"
@@ -17,7 +21,6 @@ import (
 	"github.com/go-chi/chi/middleware"
 	"github.com/knadh/sql-jobber/backends"
 	flag "github.com/spf13/pflag"
-	"github.com/spf13/viper"
 
 	// MySQL and Postgres drivers.
 	_ "github.com/go-sql-driver/mysql"
@@ -61,6 +64,8 @@ type DBConfig struct {
 var (
 	sysLog = log.New(os.Stdout, "JOBBER: ", log.Ldate|log.Ltime|log.Lshortfile)
 
+	ko = koanf.New(".")
+
 	// Global Jobber container.
 	jobber = &Jobber{
 		Tasks:          make(Tasks),
@@ -72,39 +77,30 @@ var (
 
 func init() {
 	// Command line flags.
-	flagSet := flag.NewFlagSet("config", flag.ContinueOnError)
-	flagSet.Usage = func() {
+	f := flag.NewFlagSet("config", flag.ContinueOnError)
+	f.Usage = func() {
 		sysLog.Println("SQL Jobber")
-		sysLog.Println(flagSet.FlagUsages())
+		sysLog.Println(f.FlagUsages())
 		os.Exit(0)
 	}
 
-	viper.SetConfigName("config")
-	viper.SetConfigType("toml")
-	viper.SetDefault("config", "config.toml")
-	viper.SetDefault("server", ":6060")
-	viper.SetDefault("sql-directory", []string{"./sql"})
-	viper.SetDefault("worker-name", "sqljobber")
-	viper.SetDefault("worker-concurrency", 10)
-	viper.SetDefault("worker-only", false)
+	f.String("config", "config.toml", "Path to the TOML configuration file")
+	f.String("server", "127.0.0.1:6060", "Web server address")
+	f.StringSlice("sql-directory", []string{"./sql"}, "Path to directory with .sql scripts. Can be specified multiple times")
+	f.String("queue", "default_queue", "Name of the job queue to accept jobs from")
+	f.String("worker-name", "sqljobber", "Name of this worker instance")
+	f.Int("worker-concurrency", 10, "Number of concurrent worker threads to run")
+	f.Bool("worker-only", false, "Don't start the HTTP server and run in worker-only mode?")
+	f.Bool("version", false, "Current version of the build")
+	f.Parse(os.Args[1:])
 
-	flagSet.String("config", "config.toml", "Path to the TOML configuration file")
-	flagSet.String("server", "127.0.0.1:6060", "Web server address")
-	flagSet.StringSlice("sql-directory", []string{"./sql"}, "Path to directory with .sql scripts. Can be specified multiple times")
-	flagSet.String("queue", "default_queue", "Name of the job queue to accept jobs from")
-	flagSet.String("worker-name", "sqljobber", "Name of this worker instance")
-	flagSet.Int("worker-concurrency", 10, "Number of concurrent worker threads to run")
-	flagSet.Bool("worker-only", false, "Don't start the HTTP server and run in worker-only mode?")
-	flagSet.Bool("version", false, "Current version of the build")
+	// Load commandline params.
+	ko.Load(posflag.Provider(f, ".", ko), nil)
 
-	flagSet.Parse(os.Args[1:])
-	viper.BindPFlags(flagSet)
-
-	// Config file.
-	viper.SetConfigFile(viper.GetString("config"))
-	err := viper.ReadInConfig()
-	if err != nil {
-		log.Fatalf("error reading config: %s", err)
+	// Load the config file.
+	sysLog.Printf("reading config: %s", ko.String("config"))
+	if err := ko.Load(file.Provider(ko.String("config")), toml.Parser()); err != nil {
+		sysLog.Printf("error reading config: %v", err)
 	}
 
 	// Override Machinery's default logger.
@@ -113,18 +109,18 @@ func init() {
 
 func main() {
 	// Display version.
-	if viper.GetBool("version") {
+	if ko.Bool("version") {
 		sysLog.Printf("commit: %v\nBuild: %v", buildVersion, buildDate)
 		return
 	}
 
 	mode := "default"
-	if viper.GetBool("worker-only") {
+	if ko.Bool("worker-only") {
 		mode = "worker only"
 	}
 	sysLog.Printf("starting server %s (queue = %s) in %s mode",
-		viper.GetString("worker-name"),
-		viper.GetString("queue"),
+		ko.String("worker-name"),
+		ko.String("queue"),
 		mode)
 
 	// Source and result backend DBs.
@@ -132,8 +128,8 @@ func main() {
 		dbs    map[string]DBConfig
 		resDBs map[string]DBConfig
 	)
-	viper.UnmarshalKey("db", &dbs)
-	viper.UnmarshalKey("results", &resDBs)
+	ko.Unmarshal("db", &dbs)
+	ko.Unmarshal("results", &resDBs)
 
 	// There should be at least one DB.
 	if len(dbs) == 0 {
@@ -165,7 +161,7 @@ func main() {
 		// Create a new backend instance.
 		backend, err := backends.NewSQLBackend(conn,
 			cfg.Type,
-			viper.GetString(fmt.Sprintf("results.%s.results_table", dbName)),
+			ko.String(fmt.Sprintf("results.%s.results_table", dbName)),
 			sysLog)
 		if err != nil {
 			log.Fatalf("error initializing result backend: %v", err)
@@ -175,9 +171,9 @@ func main() {
 	}
 
 	// Parse and load SQL queries.
-	for _, d := range viper.GetStringSlice("sql-directory") {
+	for _, d := range ko.Strings("sql-directory") {
 		sysLog.Printf("loading SQL queries from directory: %s", d)
-		tasks, err := loadSQLTasks(d, jobber.DBs, jobber.ResultBackends, viper.GetString("queue"))
+		tasks, err := loadSQLTasks(d, jobber.DBs, jobber.ResultBackends, ko.String("queue"))
 		if err != nil {
 			sysLog.Fatal(err)
 		}
@@ -214,25 +210,25 @@ func main() {
 	// Setup the job server.
 	var err error
 	jobber.Machinery, err = connectJobServer(jobber, &config.Config{
-		Broker:          viper.GetString("machinery.broker_address"),
-		DefaultQueue:    viper.GetString("queue"),
-		ResultBackend:   viper.GetString("machinery.state_address"),
-		ResultsExpireIn: viper.GetInt("result_backend.results_ttl"),
+		Broker:          ko.String("machinery.broker_address"),
+		DefaultQueue:    ko.String("queue"),
+		ResultBackend:   ko.String("machinery.state_address"),
+		ResultsExpireIn: ko.Int("result_backend.results_ttl"),
 	}, jobber.Tasks)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// Start the HTTP server.
-	if !viper.GetBool("worker-only") {
-		sysLog.Printf("starting HTTP server on %s", viper.GetString("server"))
+	if !ko.Bool("worker-only") {
+		sysLog.Printf("starting HTTP server on %s", ko.String("server"))
 		go func() {
-			sysLog.Println(http.ListenAndServe(viper.GetString("server"), r))
+			sysLog.Println(http.ListenAndServe(ko.String("server"), r))
 			os.Exit(0)
 		}()
 	}
 
-	jobber.Worker = jobber.Machinery.NewWorker(viper.GetString("worker-name"),
-		viper.GetInt("worker-concurrency"))
+	jobber.Worker = jobber.Machinery.NewWorker(ko.String("worker-name"),
+		ko.Int("worker-concurrency"))
 	jobber.Worker.Launch()
 }

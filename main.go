@@ -30,9 +30,6 @@ import (
 const (
 	dbMySQL    = "mysql"
 	dbPostgres = "postgres"
-
-	buildVersion = "unknown"
-	buildDate    = "unknown"
 )
 
 type constants struct {
@@ -62,12 +59,10 @@ type DBConfig struct {
 }
 
 var (
-	sysLog = log.New(os.Stdout, "JOBBER: ", log.Ldate|log.Ltime|log.Lshortfile)
-
-	ko = koanf.New(".")
-
-	// Global Jobber container.
-	jobber = &Jobber{
+	buildString = "unknown"
+	sysLog      = log.New(os.Stdout, "JOBBER: ", log.Ldate|log.Ltime|log.Lshortfile)
+	ko          = koanf.New(".")
+	jobber      = &Jobber{
 		Tasks:          make(Tasks),
 		DBs:            make(DBs),
 		ResultBackends: make(ResultBackends),
@@ -91,11 +86,17 @@ func init() {
 	f.String("worker-name", "sqljobber", "Name of this worker instance")
 	f.Int("worker-concurrency", 10, "Number of concurrent worker threads to run")
 	f.Bool("worker-only", false, "Don't start the HTTP server and run in worker-only mode?")
-	f.Bool("version", false, "Current version of the build")
+	f.Bool("version", false, "Current version and build")
 	f.Parse(os.Args[1:])
 
 	// Load commandline params.
 	ko.Load(posflag.Provider(f, ".", ko), nil)
+
+	// Display version.
+	if ko.Bool("version") {
+		fmt.Println(buildString)
+		os.Exit(0)
+	}
 
 	// Load the config file.
 	sysLog.Printf("reading config: %s", ko.String("config"))
@@ -108,12 +109,6 @@ func init() {
 }
 
 func main() {
-	// Display version.
-	if ko.Bool("version") {
-		sysLog.Printf("commit: %v\nBuild: %v", buildVersion, buildDate)
-		return
-	}
-
 	mode := "default"
 	if ko.Bool("worker-only") {
 		mode = "worker only"

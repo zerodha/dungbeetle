@@ -5,10 +5,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/knadh/koanf"
-	"github.com/knadh/koanf/parsers/toml"
-	"github.com/knadh/koanf/providers/file"
-	"github.com/knadh/koanf/providers/posflag"
 	"log"
 	"net/http"
 	"os"
@@ -19,6 +15,10 @@ import (
 	mlog "github.com/RichardKnop/machinery/v1/log"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
+	"github.com/knadh/koanf"
+	"github.com/knadh/koanf/parsers/toml"
+	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/providers/posflag"
 	"github.com/knadh/sql-jobber/backends"
 	flag "github.com/spf13/pflag"
 

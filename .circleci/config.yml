@@ -6,7 +6,7 @@ jobs:
   build:
     docker:
       # Golang
-      - image: circleci/golang:1.11
+      - image: circleci/golang:1.12
 
       # Redis
       - image: circleci/redis:latest
@@ -22,7 +22,7 @@ jobs:
       - checkout
 
       # Build and test
-      - run: go build
+      - run: go build -v
 
       # Make sure main.go init fn picks config file from circle config
       - run: go test -v ./... --config ./.circleci/config.toml

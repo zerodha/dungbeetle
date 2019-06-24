@@ -60,7 +60,7 @@ func createTempDBs(dbs, resDBs map[string]DBConfig) {
 	}
 }
 
-func init() {
+func setup() {
 	// Source and result backend DBs.
 	var (
 		dbs    map[string]DBConfig
@@ -190,6 +190,13 @@ func testRequest(t *testing.T, method, path string, body io.Reader, dest interfa
 	}
 
 	return string(respBody)
+}
+
+// TestMain perform setup and teardown for tests.
+func TestMain(m *testing.M) {
+	setup()
+	code := m.Run()
+	os.Exit(code)
 }
 
 // TestWelcome tests the ping handler

@@ -11,7 +11,7 @@ require (
 	github.com/google/uuid v1.1.1 // indirect
 	github.com/googleapis/gax-go/v2 v2.0.5 // indirect
 	github.com/hashicorp/golang-lru v0.5.1 // indirect
-	github.com/knadh/goyesql v1.1.1
+	github.com/knadh/goyesql v2.0.0+incompatible
 	github.com/knadh/koanf v0.4.0
 	github.com/lib/pq v1.0.0
 	github.com/satori/go.uuid v1.2.0

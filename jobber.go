@@ -11,6 +11,7 @@ import (
 	machinery "github.com/RichardKnop/machinery/v1"
 	"github.com/RichardKnop/machinery/v1/config"
 	"github.com/RichardKnop/machinery/v1/tasks"
+	"github.com/knadh/sql-jobber/models"
 	uuid "github.com/satori/go.uuid"
 )
 
@@ -20,7 +21,7 @@ var (
 )
 
 // createJobSignature creates and returns a machinery tasks.Signature{} from the given job params.
-func createJobSignature(j jobReq, taskName string, ttl int, jobber *Jobber) (tasks.Signature, error) {
+func createJobSignature(j models.JobReq, taskName string, ttl int, jobber *Jobber) (tasks.Signature, error) {
 	task, ok := jobber.Tasks[taskName]
 	if !ok {
 		return tasks.Signature{}, fmt.Errorf("unrecognized task: %s", taskName)

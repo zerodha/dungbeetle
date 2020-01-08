@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"time"
 
 	"github.com/RichardKnop/machinery/v1/tasks"
 	"github.com/go-chi/chi"
+	"github.com/knadh/sql-jobber/models"
 )
 
 // groupConcurrency represents the concurrency factor for job groups.
@@ -16,56 +16,6 @@ const groupConcurrency = 5
 
 // regexValidateName represents the character classes allowed in a job ID.
 var regexValidateName, _ = regexp.Compile("(?i)^[a-z0-9-_:]+$")
-
-type jobReq struct {
-	TaskName string   `json:"task"`
-	JobID    string   `json:"job_id"`
-	Queue    string   `json:"queue"`
-	ETA      string   `json:"eta"`
-	Retries  int      `json:"retries"`
-	TTL      int      `json:"ttl"`
-	Args     []string `json:"args"`
-
-	ttlDuration time.Duration
-}
-
-type groupReq struct {
-	GroupID     string   `json:"group_id"`
-	Concurrency int      `json:"concurrency"`
-	Jobs        []jobReq `json:"jobs"`
-}
-
-type jobResp struct {
-	JobID    string     `json:"job_id"`
-	TaskName string     `json:"task"`
-	Queue    string     `json:"queue"`
-	ETA      *time.Time `json:"eta"`
-	Retries  int        `json:"retries"`
-}
-
-type groupResp struct {
-	GroupID string    `json:"group_id"`
-	Jobs    []jobResp `json:"jobs"`
-}
-
-type groupStatusResp struct {
-	GroupID string          `json:"group_id"`
-	State   string          `json:"state"`
-	Jobs    []jobStatusResp `json:"jobs"`
-}
-
-type jobStatusResp struct {
-	JobID   string              `json:"job_id"`
-	State   string              `json:"state"`
-	Results []*tasks.TaskResult `json:"results"`
-	Error   string              `json:"error"`
-}
-
-type httpResp struct {
-	Status  string      `json:"status"`
-	Message string      `json:"message,omitempty"`
-	Data    interface{} `json:"data"`
-}
 
 // handleGetTasksList returns the jobs list. If the optional query param ?sql=1
 // is passed, it returns the raw SQL bodies as well.
@@ -88,7 +38,7 @@ func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sendResponse(w, jobStatusResp{
+	sendResponse(w, models.JobStatusResp{
 		JobID:   out.TaskUUID,
 		State:   out.State,
 		Results: out.Results,
@@ -111,12 +61,12 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var (
-		jobs        = make([]jobStatusResp, len(res))
+		jobs        = make([]models.JobStatusResp, len(res))
 		jobsDone    = 0
 		groupFailed = false
 	)
 	for i, j := range res {
-		jobs[i] = jobStatusResp{
+		jobs[i] = models.JobStatusResp{
 			JobID:   j.TaskUUID,
 			State:   j.State,
 			Results: j.Results,
@@ -139,7 +89,7 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 		groupStatus = tasks.StatePending
 	}
 
-	out := groupStatusResp{
+	out := models.GroupStatusResp{
 		GroupID: groupID,
 		State:   groupStatus,
 		Jobs:    jobs,
@@ -164,7 +114,7 @@ func handleGetPendingJobs(w http.ResponseWriter, r *http.Request) {
 func handlePostJob(w http.ResponseWriter, r *http.Request) {
 	var (
 		taskName = chi.URLParam(r, "taskName")
-		job      jobReq
+		job      models.JobReq
 	)
 
 	if r.ContentLength == 0 {
@@ -199,7 +149,7 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sendResponse(w, jobResp{
+	sendResponse(w, models.JobResp{
 		JobID:    res.Signature.UUID,
 		TaskName: res.Signature.Name,
 		Queue:    res.Signature.RoutingKey,
@@ -210,7 +160,7 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 
 // handlePostJobGroup creates a new job against a given task name.
 func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
-	var group groupReq
+	var group models.GroupReq
 
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&group); err != nil {
@@ -256,9 +206,9 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobs := make([]jobResp, len(res))
+	jobs := make([]models.JobResp, len(res))
 	for i, r := range res {
-		jobs[i] = jobResp{
+		jobs[i] = models.JobResp{
 			JobID:    r.Signature.UUID,
 			TaskName: r.Signature.Name,
 			Queue:    r.Signature.RoutingKey,
@@ -272,7 +222,7 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 		gID = res[0].Signature.GroupUUID
 	}
 
-	out := groupResp{
+	out := models.GroupResp{
 		GroupID: gID,
 		Jobs:    jobs,
 	}
@@ -322,7 +272,7 @@ func handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 // sendErrorResponse sends a JSON envelope to the HTTP response.
 func sendResponse(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	out, err := json.Marshal(httpResp{Status: "success", Data: data})
+	out, err := json.Marshal(models.HTTPResp{Status: "success", Data: data})
 	if err != nil {
 		sendErrorResponse(w, "Internal Server Error", http.StatusInternalServerError)
 		return
@@ -336,7 +286,7 @@ func sendErrorResponse(w http.ResponseWriter, message string, code int) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
 
-	resp := httpResp{Status: "error", Message: message}
+	resp := models.HTTPResp{Status: "error", Message: message}
 	out, _ := json.Marshal(resp)
 
 	w.Write(out)

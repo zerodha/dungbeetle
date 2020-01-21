@@ -25,4 +25,4 @@ jobs:
       - run: go build -v
 
       # Make sure main.go init fn picks config file from circle config
-      - run: go test -v ./... --config ./.circleci/config.toml
+      - run: go test -v --config ./.circleci/config.toml

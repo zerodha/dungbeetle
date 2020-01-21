@@ -158,7 +158,7 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handlePostJobGroup creates a new job against a given task name.
+// handlePostJobGroup creates multiple jobs under a group.
 func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 	var group models.GroupReq
 

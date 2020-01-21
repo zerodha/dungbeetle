@@ -17,6 +17,7 @@ import (
 	"github.com/RichardKnop/machinery/v1/config"
 	"github.com/go-chi/chi"
 	"github.com/knadh/sql-jobber/backends"
+	"github.com/knadh/sql-jobber/models"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -201,7 +202,7 @@ func TestMain(m *testing.M) {
 
 // TestWelcome tests the ping handler
 func TestWelcome(t *testing.T) {
-	var dest httpResp
+	var dest models.HTTPResp
 
 	testRequest(t, "GET", "/", nil, &dest)
 	assert.Equal(t, "welcome!", dest.Data)
@@ -209,7 +210,7 @@ func TestWelcome(t *testing.T) {
 
 // TestGetTasks tests fetching all tasks
 func TestGetTasks(t *testing.T) {
-	var dest httpResp
+	var dest models.HTTPResp
 	testRequest(t, "GET", "/tasks", nil, &dest)
 
 	expTks := []string{"get_profit_summary", "get_profit_entries", "get_profit_entries_by_date"}
@@ -220,7 +221,7 @@ func TestGetTasks(t *testing.T) {
 
 // TestPostTask tests creating a job
 func TestPostTask(t *testing.T) {
-	var dest httpResp
+	var dest models.HTTPResp
 
 	// Post a task
 	req := []byte(`{
@@ -273,7 +274,7 @@ func TestPostTask(t *testing.T) {
 
 // TestGetJobStatus tests fetching the status of a specific job
 func TestGetJobStatus(t *testing.T) {
-	var dest httpResp
+	var dest models.HTTPResp
 
 	testRequest(t, "GET", "/jobs/my_job", nil, &dest)
 	assert.Equal(t, "SUCCESS", dest.Data.(map[string]interface{})["state"])
@@ -281,7 +282,7 @@ func TestGetJobStatus(t *testing.T) {
 
 // TestGetPendingJobs test fetching pending jobs in a queue
 func TestGetPendingJobs(t *testing.T) {
-	var dest httpResp
+	var dest models.HTTPResp
 
 	testRequest(t, "GET", "/jobs/queue/default_queue", nil, &dest)
 	assert.Equal(t, 0, len(dest.Data.([]interface{})))
@@ -289,7 +290,7 @@ func TestGetPendingJobs(t *testing.T) {
 
 // TestDeleteJob tests handler for deleting a job
 func TestDeleteJob(t *testing.T) {
-	var dest httpResp
+	var dest models.HTTPResp
 
 	// Post a task
 	req := []byte(`{
@@ -305,7 +306,7 @@ func TestDeleteJob(t *testing.T) {
 
 // TestPostJobGroup tests creates a new job group
 func TestPostJobGroup(t *testing.T) {
-	var dest httpResp
+	var dest models.HTTPResp
 
 	// Post a task group
 	req := []byte(`{
@@ -335,7 +336,7 @@ func TestPostJobGroup(t *testing.T) {
 
 // TestGetJobGroup tests fetch a job group
 func TestGetJobGroup(t *testing.T) {
-	var dest httpResp
+	var dest models.HTTPResp
 
 	testRequest(t, "GET", "/groups/my_job_group_1", nil, &dest)
 	assert.Equal(t, "SUCCESS", dest.Data.(map[string]interface{})["state"].(string))

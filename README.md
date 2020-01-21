@@ -162,6 +162,9 @@ $ curl localhost:6060/tasks/get_profit_entries_by_date/jobs -H "Content-Type: ap
 $ curl localhost:6060/tasks/get_profit_entries_by_date/jobs -H "Content-Type: application/json" --data '{"job_id": "myjob", "queue": "low_priority"}'
 ```
 
+## API client
+`github.com/knadh/sql-jobber/client` package can be used as a Go HTTP API client for sql-jobber.
+
 ## Running tests locally
 
 Copy test config.

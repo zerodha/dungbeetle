@@ -194,11 +194,9 @@ func main() {
 	})
 	r.Get("/tasks", handleGetTasksList)
 	r.Post("/tasks/{taskName}/jobs", handlePostJob)
-
 	r.Get("/jobs/{jobID}", handleGetJobStatus)
-	r.Get("/jobs/queue/{queue}", handleGetPendingJobs)
 	r.Delete("/jobs/{jobID}", handleDeleteJob)
-
+	r.Get("/jobs/queue/{queue}", handleGetPendingJobs)
 	r.Post("/groups", handlePostJobGroup)
 	r.Get("/groups/{groupID}", handleGetGroupStatus)
 

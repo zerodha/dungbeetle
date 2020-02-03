@@ -8,6 +8,7 @@ import (
 
 	"github.com/RichardKnop/machinery/v1/tasks"
 	"github.com/go-chi/chi"
+	"github.com/gomodule/redigo/redis"
 	"github.com/knadh/sql-jobber/models"
 )
 
@@ -31,8 +32,12 @@ func handleGetTasksList(w http.ResponseWriter, r *http.Request) {
 
 // handleGetJobStatus returns the status of a given jobID.
 func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
-	out, err := jobber.Machinery.GetBackend().GetState(chi.URLParam(r, "jobID"))
-	if err != nil {
+	jobID := chi.URLParam(r, "jobID")
+	out, err := jobber.Machinery.GetBackend().GetState(jobID)
+	if err == redis.ErrNil {
+		sendErrorResponse(w, "job not found", http.StatusNotFound)
+		return
+	} else if err != nil {
 		sysLog.Printf("error fetching job status: %v", err)
 		sendErrorResponse(w, "error fetching job status", http.StatusInternalServerError)
 		return

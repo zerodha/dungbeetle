@@ -50,9 +50,11 @@ func TestPostJob(t *testing.T) {
 }
 
 func TestGetJobStatus(t *testing.T) {
+	_, err := cl.GetJobStatus("aaaa")
+	assert.Error(t, err)
 	for _, j := range jobs {
 		r, err := cl.GetJobStatus(j.JobID)
-		assert.NoError(t, err, "error posting job")
+		assert.NoError(t, err, "error getting job status")
 		assert.Equal(t, j.JobID, r.JobID)
 	}
 }

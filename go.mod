@@ -8,6 +8,7 @@ require (
 	github.com/go-chi/chi v3.3.3+incompatible
 	github.com/go-sql-driver/mysql v1.4.0
 	github.com/golang/protobuf v1.3.1 // indirect
+	github.com/gomodule/redigo v2.0.0+incompatible
 	github.com/google/uuid v1.1.1 // indirect
 	github.com/googleapis/gax-go/v2 v2.0.5 // indirect
 	github.com/hashicorp/golang-lru v0.5.1 // indirect

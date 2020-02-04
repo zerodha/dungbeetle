@@ -176,7 +176,7 @@ func (c *Client) doHTTPReq(method, rURI string, reqBody interface{}, headers htt
 		if err := json.Unmarshal(body, &resp); err != nil {
 			return fmt.Errorf("error unmarshaling JSON response: %v", err)
 		}
-		return errors.New(resp.Message)
+		return fmt.Errorf("%d: %s", r.StatusCode, resp.Message)
 	}
 
 	return nil

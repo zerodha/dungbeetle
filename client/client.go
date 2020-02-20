@@ -69,7 +69,7 @@ func (c *Client) PostJob(j models.JobReq) (models.JobResp, error) {
 func (c *Client) GetJobStatus(jobID string) (models.JobStatusResp, error) {
 	var out models.JobStatusResp
 	err := c.doHTTPReq(http.MethodGet,
-		fmt.Sprintf(uriDeleteJob, jobID), nil, nil, &out)
+		fmt.Sprintf(uriGetJobStatus, jobID), nil, nil, &out)
 	return out, err
 }
 
@@ -96,8 +96,8 @@ func (c *Client) PostJobGroup(jobs models.GroupReq) (models.GroupResp, error) {
 }
 
 // GetGroupStatus fetches the status of a group of job.
-func (c *Client) GetGroupStatus(groupID string) (models.GroupResp, error) {
-	var out models.GroupResp
+func (c *Client) GetGroupStatus(groupID string) (models.GroupStatusResp, error) {
+	var out models.GroupStatusResp
 	err := c.doHTTPReq(http.MethodGet,
 		fmt.Sprintf(uriGetGroupStatus, groupID), nil, nil, &out)
 	return out, err

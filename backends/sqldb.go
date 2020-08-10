@@ -259,6 +259,13 @@ func (s *sqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 			if s.dbType != dbTypePostgres {
 				typ = "TEXT"
 			}
+		// _INT4, _INT8, _TEXT represent array types in Postgres
+		case "_INT4": // Postgres
+			typ = "_INT4"
+		case "_INT8": // Postgres
+			typ = "_INT8"
+		case "_TEXT": // Postgres
+			typ = "_TEXT"
 		default:
 			typ = "TEXT"
 		}

@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	machinery "github.com/RichardKnop/machinery/v1"
@@ -17,6 +18,7 @@ import (
 	"github.com/go-chi/chi/middleware"
 	"github.com/knadh/koanf"
 	"github.com/knadh/koanf/parsers/toml"
+	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/providers/posflag"
 	"github.com/knadh/sql-jobber/backends"
@@ -102,6 +104,14 @@ func init() {
 	sysLog.Printf("reading config: %s", ko.String("config"))
 	if err := ko.Load(file.Provider(ko.String("config")), toml.Parser()); err != nil {
 		sysLog.Printf("error reading config: %v", err)
+	}
+
+	// Load environment variables and merge into the loaded config.
+	if err := ko.Load(env.Provider("SQL_JOBBER", ".", func(s string) string {
+		return strings.Replace(
+			strings.ToLower(strings.TrimPrefix(s, "SQL_JOBBER")), "__", ".", -1)
+	}), nil); err != nil {
+		sysLog.Fatalf("error loading config from env: %v", err)
 	}
 
 	// Override Machinery's default logger.

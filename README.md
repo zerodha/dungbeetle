@@ -1,3 +1,5 @@
+<a href="https://zerodha.tech"><img src="https://zerodha.tech/static/images/github-badge.svg" align="right" /></a>
+
 # SQL Jobber
 
 ![CircleCI (all branches)](https://img.shields.io/circleci/project/github/knadh/sql-jobber.svg)

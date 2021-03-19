@@ -11,6 +11,7 @@ builds:
       - netbsd
     goarch:
       - amd64
+    dir: ./cmd/
 
 # Archive customization
 archives:

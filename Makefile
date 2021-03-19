@@ -9,7 +9,7 @@ BIN := sql-jobber
 .PHONY: build
 build:
 	# Compile the main application.
-	go build -o ${BIN} -ldflags="-s -w -X 'main.buildString=${BUILDSTR}'"
+	go build -o ${BIN} -ldflags="-s -w -X 'main.buildString=${BUILDSTR}'" ./cmd/
 
 .PHONY: test
 test:

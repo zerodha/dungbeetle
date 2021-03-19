@@ -70,7 +70,7 @@ func TestGetPendingJobs(t *testing.T) {
 
 func TestDeleteJob(t *testing.T) {
 	for _, j := range jobs {
-		err := cl.DeleteJob(j.JobID)
+		err := cl.DeleteJob(j.JobID, false)
 		assert.NoError(t, err, "error deleting job")
 	}
 }

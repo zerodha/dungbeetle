@@ -3,12 +3,13 @@ package client
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
+	"strconv"
 
 	"github.com/RichardKnop/machinery/v1/tasks"
 	"github.com/knadh/sql-jobber/models"
@@ -19,7 +20,13 @@ const (
 	uriPostJob = "/tasks/%s/jobs"
 
 	// %s = jobID
+	uriCancelJob = "/jobs/%s"
+
+	// %s = jobID
 	uriDeleteJob = "/jobs/%s"
+
+	// %s = groupID
+	uriDeleteGroupJob = "/groups/%s"
 
 	// %s = jobID
 	uriGetJobStatus = "/jobs/%s"
@@ -74,10 +81,20 @@ func (c *Client) GetJobStatus(jobID string) (models.JobStatusResp, error) {
 }
 
 // DeleteJob sends a request to delete a job.
-func (c *Client) DeleteJob(jobID string) error {
-	var out bool
+func (c *Client) DeleteJob(jobID string, purge bool) error {
+	params := url.Values{}
+	params.Set("purge", strconv.FormatBool(purge))
 	return c.doHTTPReq(http.MethodDelete,
-		fmt.Sprintf(uriDeleteJob, jobID), nil, nil, &out)
+		fmt.Sprintf(uriDeleteJob, jobID), params, nil, nil)
+}
+
+// DeleteGroupJob deletes group job and its child jobs.
+func (c *Client) DeleteGroupJob(jobID string, purge bool) error {
+	// Query params
+	params := url.Values{}
+	params.Set("purge", strconv.FormatBool(purge))
+	return c.doHTTPReq(http.MethodDelete,
+		fmt.Sprintf(uriDeleteGroupJob, jobID), params, nil, nil)
 }
 
 // GetPendingJobs fetches the list of pending jobs.
@@ -142,11 +159,11 @@ func (c *Client) doHTTPReq(method, rURI string, reqBody interface{}, headers htt
 
 	// If the request method is GET or DELETE, add the params as QueryString.
 	if reqBody != nil && method == http.MethodGet || method == http.MethodDelete {
-		s, ok := reqBody.(string)
-		if ok {
-			req.URL.RawQuery = s
-			return errors.New("GET request param type should be string")
+		s, ok := reqBody.(url.Values)
+		if !ok {
+			return fmt.Errorf("error converting params: %v", ok)
 		}
+		req.URL.RawQuery = s.Encode()
 	}
 
 	r, err := c.o.HTTPClient.Do(req)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 
 	"github.com/RichardKnop/machinery/v1/tasks"
 	"github.com/go-chi/chi"
@@ -239,27 +240,24 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 	sendResponse(w, out)
 }
 
-// handleDeleteJob deletes a job from the job queue if it's not already
-// running. This is not foolproof as it's possible that right after
-// the isRunning? check, and right before the deletion, the job could've
-// started running.
+// handleDeleteJob deletes a job from the job queue. If the job is running,
+// it is cancelled first and then deleted.
 func handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	var (
-		jobID  = chi.URLParam(r, "jobID")
-		s, err = jobber.Machinery.GetBackend().GetState(jobID)
+		jobID    = chi.URLParam(r, "jobID")
+		s, err   = jobber.Machinery.GetBackend().GetState(jobID)
+		purge, _ = strconv.ParseBool(r.URL.Query().Get("purge"))
 	)
 	if err != nil {
 		sysLog.Printf("error fetching job: %v", err)
 		sendErrorResponse(w, "error fetching job", http.StatusInternalServerError)
 		return
 	}
-
-	// If the job is already complete, no go.
-	if s.IsCompleted() {
+	if !purge && s.IsCompleted() {
+		// If the job is already complete, no go.
 		sendErrorResponse(w, "can't delete job as it's already complete", http.StatusGone)
 		return
 	}
-
 	// Stop the job if it's running.
 	jobMutex.RLock()
 	cancel, ok := jobContexts[jobID]
@@ -275,6 +273,72 @@ func handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sendResponse(w, true)
+}
+
+// handleDeleteGroupJob deletes all the jobs of a group along with the group.
+// If the job is running, it is cancelled first, and then deleted.
+func handleDeleteGroupJob(w http.ResponseWriter, r *http.Request) {
+	var (
+		groupID    = chi.URLParam(r, "groupID")
+		purge, err = strconv.ParseBool(r.URL.Query().Get("purge"))
+	)
+
+	if err != nil {
+		sysLog.Printf("error parsing boolean: %v", err)
+		sendErrorResponse(w, "error parsing boolean", http.StatusInternalServerError)
+		return
+	}
+	// Get state of group.
+	res, err := jobber.Machinery.GetBackend().GroupTaskStates(groupID, 0)
+	if err != nil {
+		sysLog.Printf("error fetching group status: %v", err)
+		sendErrorResponse(w, "error fetching group status", http.StatusInternalServerError)
+		return
+	}
+	// If purge is set to false, delete job only if isn't completed yet.
+	if !purge {
+		// Get state of group ID to check if it has been completed or not.
+		s, err := jobber.Machinery.GetBackend().GetState(groupID)
+		if err == redis.ErrNil {
+			sendErrorResponse(w, "group not found", http.StatusNotFound)
+			return
+		}
+		// If the job is already complete, no go.
+		if s.IsCompleted() {
+			sendErrorResponse(w, "can't delete group as it's already complete", http.StatusGone)
+			return
+		}
+	}
+
+	// Loop through every job of the group and purge them.
+	for _, j := range res {
+		if err != nil {
+			sysLog.Printf("error fetching job: %v", err)
+			sendErrorResponse(w, "error fetching job", http.StatusInternalServerError)
+			return
+		}
+		// Stop the job if it's running.
+		jobMutex.RLock()
+		cancel, ok := jobContexts[j.TaskUUID]
+		jobMutex.RUnlock()
+		if ok {
+			cancel()
+		}
+		// Delete the job.
+		if err := jobber.Machinery.GetBackend().PurgeState(j.TaskUUID); err != nil {
+			sysLog.Printf("error deleting job: %v", err)
+			sendErrorResponse(w, fmt.Sprintf("error deleting job: %v", err), http.StatusGone)
+			return
+		}
+	}
+
+	// Delete the group.
+	if err := jobber.Machinery.GetBackend().PurgeState(groupID); err != nil {
+		sysLog.Printf("error deleting job: %v", err)
+		sendErrorResponse(w, fmt.Sprintf("error deleting job: %v", err), http.StatusGone)
+		return
+	}
 	sendResponse(w, true)
 }
 

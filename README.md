@@ -90,7 +90,8 @@ Starting the server runs a set of workers listening on a default job queue. It a
 | GET    | /jobs/queue/{queue}    | Returns the list of all pending jobs in a queue |
 | POST   | /groups                | Schedule a group of jobs                        |
 | GET    | /groups/{groupID}      | Get the status of a job group and its jobs      |
-| DELETE | /jobs/{jobID}          | Deletes a pending job from the queue and immediately cancels its execution and frees the thread. Only the Go PostgreSQL driver cancels queries mid execution. MySQL server will keep continuing to execute the query. For MySQL, it's important to set `max_execution_time`  |
+| DELETE | /jobs/{jobID}          | Deletes a pending job from the queue and immediately cancels its execution and frees the thread. Send a query param "purge=true" to delete completed jobs. Only the Go PostgreSQL driver cancels queries mid execution. MySQL server will keep continuing to execute the query. For MySQL, it's important to set `max_execution_time`.   |
+| DELETE | /groups/{groupID}          | Deletes a pending job from the queue and immediately cancels its execution and frees the thread. Send a query param "purge=true" to delete completed jobs. Only the Go PostgreSQL driver cancels queries mid execution. MySQL server will keep continuing to execute the query. For MySQL, it's important to set `max_execution_time`  |
 
 POST requests accept raw JSON bodies. The JSON params are listed below.
 

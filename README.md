@@ -59,7 +59,7 @@ The results from an SQL query job are written to a result backend (MySQL or Post
 
 ## Installation
 ### 1) Install
-A pre-compiled binary can be downloaded from the [releases](releases) page.
+A pre-compiled binary can be downloaded from the [releases](https://github.com/knadh/sql-jobber/releases) page.
 
 or:
 

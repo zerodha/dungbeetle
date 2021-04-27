@@ -249,7 +249,7 @@ func TestPostTask(t *testing.T) {
 
 	// Try getting the status without waiting for the job to finish
 	testRequest(t, "GET", "/jobs/my_job", nil, &dest)
-	assert.Contains(t, []string{"PENDING", "RECEIVED"}, dest.Data.(map[string]interface{})["state"])
+	assert.Contains(t, []string{"PENDING", "RECEIVED", "STARTED"}, dest.Data.(map[string]interface{})["state"])
 
 	// Lets wait till the query finishes
 	time.Sleep(time.Duration(2 * time.Second))
@@ -338,7 +338,7 @@ func TestPostJobGroup(t *testing.T) {
 
 	// fetch for job group status
 	testRequest(t, "GET", "/groups/my_job_group_1", nil, &dest)
-	assert.Equal(t, "PENDING", dest.Data.(map[string]interface{})["state"].(string))
+	assert.Contains(t, []string{"PENDING", "RECEIVED", "STARTED"}, dest.Data.(map[string]interface{})["state"].(string))
 
 	// Lets wait till the query finishes
 	time.Sleep(time.Duration(2 * time.Second))

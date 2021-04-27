@@ -286,7 +286,7 @@ func (s *sqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 
 	// If the DB is Postgres, optionally create an "unlogged" table that disables
 	// WAL, improving performance of throw-away cache tables.
-	// https://www.postgresql.org/docs/9.1/sql-createtable.html
+	// https://www.postgresql.org/docs/current/sql-createtable.html
 	if s.opt.DBType == dbTypePostgres && s.opt.UnloggedTables {
 		unlogged = "UNLOGGED"
 	}

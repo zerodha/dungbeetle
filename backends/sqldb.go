@@ -15,16 +15,17 @@ const (
 	dbTypeMysql    = "mysql"
 )
 
+// Opt represents SQL DB backend's options.
 type Opt struct {
-	DbType        string
-	ResultsTable  string
-	UnloggedTable bool
+	DBType         string
+	ResultsTable   string
+	UnloggedTables bool
 }
 
 // sqlDB represents the sqlDB backend.
 type sqlDB struct {
 	db     *sql.DB
-	opt    *Opt
+	opt    Opt
 	logger *log.Logger
 
 	// The result schemas (CREATE TABLE ...) are dynamically
@@ -58,11 +59,11 @@ type insertSchema struct {
 
 // NewSQLBackend returns a new sqlDB result backend instance.
 // It accepts an *sql.DB connection
-func NewSQLBackend(db *sql.DB, options *Opt, l *log.Logger) (ResultBackend, error) {
+func NewSQLBackend(db *sql.DB, opt Opt, l *log.Logger) (ResultBackend, error) {
 	var (
 		r = sqlDB{
 			db:              db,
-			opt:             options,
+			opt:             opt,
 			resTableSchemas: make(map[string]insertSchema),
 			schemaMutex:     sync.RWMutex{},
 			logger:          l,
@@ -70,8 +71,8 @@ func NewSQLBackend(db *sql.DB, options *Opt, l *log.Logger) (ResultBackend, erro
 	)
 
 	// Config.
-	if options.ResultsTable != "" {
-		r.opt.ResultsTable = options.ResultsTable
+	if opt.ResultsTable != "" {
+		r.opt.ResultsTable = opt.ResultsTable
 	} else {
 		r.opt.ResultsTable = "results_%s"
 	}
@@ -120,7 +121,7 @@ func (w *sqlDBWriter) RegisterColTypes(cols []string, colTypes []*sql.ColumnType
 		colNameHolder[i] = fmt.Sprintf(`"%s"`, w.cols[i])
 
 		// This will be filled by the driver.
-		if w.backend.opt.DbType == dbTypePostgres {
+		if w.backend.opt.DBType == dbTypePostgres {
 			// Postgres placeholders are $1, $2 ...
 			colValHolder[i] = fmt.Sprintf("$%d", i+1)
 		} else {
@@ -233,7 +234,7 @@ func (s *sqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 		colNameHolder[i] = fmt.Sprintf(`"%s"`, cols[i])
 
 		// This will be filled by the driver.
-		if s.opt.DbType == dbTypePostgres {
+		if s.opt.DBType == dbTypePostgres {
 			// Postgres placeholders are $1, $2 ...
 			colValHolder[i] = fmt.Sprintf("$%d", i+1)
 		} else {
@@ -264,7 +265,7 @@ func (s *sqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 		case "BOOLEAN": // Postgres, MySQL
 			typ = "BOOLEAN"
 		case "JSON", "JSONB": // Postgres
-			if s.opt.DbType != dbTypePostgres {
+			if s.opt.DBType != dbTypePostgres {
 				typ = "TEXT"
 			}
 		// _INT4, _INT8, _TEXT represent array types in Postgres
@@ -285,7 +286,10 @@ func (s *sqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 		fields[i] = fmt.Sprintf(`"%s" %s`, cols[i], typ)
 	}
 
-	if s.opt.DbType == dbTypePostgres && s.opt.UnloggedTable {
+	// If the DB is Postgres, optionally create an "unlogged" table that disables
+	// WAL, improving performance of throw-away cache tables.
+	// https://www.postgresql.org/docs/9.1/sql-createtable.html
+	if s.opt.DBType == dbTypePostgres && s.opt.UnloggedTables {
 		unlogged = "UNLOGGED"
 	}
 

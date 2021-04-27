@@ -55,6 +55,7 @@ type Jobber struct {
 type DBConfig struct {
 	Type           string        `mapstructure:"type"`
 	DSN            string        `mapstructure:"dsn"`
+	Unlogged       bool          `mapstructure:"unlogged"`
 	MaxIdleConns   int           `mapstructure:"max_idle"`
 	MaxActiveConns int           `mapstructure:"max_active"`
 	ConnectTimeout time.Duration `mapstructure:"connect_timeout"`
@@ -163,11 +164,14 @@ func main() {
 			log.Fatal(err)
 		}
 
+		opt := backends.Opt{
+			DBType:         cfg.Type,
+			ResultsTable:   ko.String(fmt.Sprintf("results.%s.results_table", dbName)),
+			UnloggedTables: cfg.Unlogged,
+		}
+
 		// Create a new backend instance.
-		backend, err := backends.NewSQLBackend(conn,
-			cfg.Type,
-			ko.String(fmt.Sprintf("results.%s.results_table", dbName)),
-			sysLog)
+		backend, err := backends.NewSQLBackend(conn, opt, sysLog)
 		if err != nil {
 			log.Fatalf("error initializing result backend: %v", err)
 		}

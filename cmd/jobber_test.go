@@ -108,11 +108,16 @@ func setup() {
 		// retain result db to perform queries on this db
 		testResultDB = conn
 
+		var (
+			opt = backends.Opt{
+				DBType:         cfg.Type,
+				ResultsTable:   ko.String(fmt.Sprintf("results.%s.results_table", dbName)),
+				UnloggedTables: cfg.Unlogged,
+			}
+		)
+
 		// Create a new backend instance.
-		backend, err := backends.NewSQLBackend(conn,
-			cfg.Type,
-			ko.String(fmt.Sprintf("results.%s.results_table", dbName)),
-			sysLog)
+		backend, err := backends.NewSQLBackend(conn, opt, sysLog)
 		if err != nil {
 			sysLog.Fatalf("error initializing result backend: %v", err)
 		}

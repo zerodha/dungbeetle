@@ -5,21 +5,26 @@
 ![test workflow](https://github.com/knadh/sql-jobber/actions/workflows/test.yml/badge.svg)
 ![release workflow](https://github.com/knadh/sql-jobber/actions/workflows/release.yml/badge.svg)
 
-A highly opinionated, distributed job-queue built specifically for defering and executing SQL read query jobs. 
+sql-jobber is a light weight SQL "job server" that maintains a distributed, asynchronous job queue of SQL read jobs against one or more large source databases. The results are written to one or more separate "cache" databases, where each result set is a newly created table, from where the results can be fetched as many times much faster than querying the source databases.
 
-- Standalone server that exposes HTTP APIs for managing jobs and groups of jobs (list, post, status check, cancel jobs)
-- Reads SQL queries from .sql files and registers them as jobs ready to be queued
-- Supports MySQL and PostgreSQL as data sources for tasks
-- Supports MySQL and PostgreSQL as result stores for task responses
+This is useful for queuing and offloading report generation on applications without clogging source databases, especially in the case of end user applications.
+
+
+## Parts
+
+- Supports MySQL and PostgreSQL as source databases.
+- Supports MySQL and PostgreSQL as result / cache databases for job responses.
+- Standalone server that exposes HTTP APIs for managing jobs and groups of jobs (list, post, status check, cancel jobs).
+- Reads SQL queries from .sql files and registers them as jobs ready to be queued.
 - Written in Go and built on top of [Machinery](https://github.com/RichardKnop/machinery). Supports multi-process, multi-threaded, asynchronous distributed job queueing via a common broker backend (Redis, AMQP etc.)
 
-## Why?
+## Usecase
 
-##### Usecase 1
-Consider an application that has a very large SQL database. When there are several thousand concurrent users requesting reports from the database simultaneously, every second of IO delay in query execution locks up the application's threads, snowballing and overloading the application. Instead, we defer every single report request into a job queue, there by immediately freeing up the front end application. The reports are presented to users as they're executed (frontend polls the job's status and prevents the user from sending any more queries). Fixed SQL Jobber servers and worker threads also act as traffic control and prevent the primary database from being indundated with requests.
+An application that has a very large SQL database, when there are several thousand concurrent users requesting reports from the database simultaneously, every second of IO delay in query execution locks up the application's threads, snowballing and overloading the application.
 
-##### Usecase 2
-Once the reports are generated, it's only natural for users to further transform the results by slicing, sorting and filtering, generating additional queries to the primary database. To offset this load, these subsequent queries can be sent to a smaller, much faster database where the results of the original read query jobs are stored. These results are of course ephemeral and can be thrown away or expired.
+Instead, defer every single report request into a job queue, there by immediately freeing up the front end application. The reports are presented to users as they're executed (frontend polls the job's status and prevents the user from sending any more queries). Fixed SQL Jobber servers and worker threads also act as traffic control and prevent the primary database from being indundated with requests.
+
+Once the reports are generated, it's natural for users to further transform the results by slicing, sorting, and filtering, generating additional queries to the primary database. To offset this load, these subsequent queries can be sent to the smaller, much faster results cache database. These results are of course ephemeral and can be thrown away or expired.
 
 ![sql-job-server png](https://user-images.githubusercontent.com/547147/44912100-d3f27b80-ad46-11e8-9938-2b6c0f974488.png)
 
@@ -54,17 +59,14 @@ Here, when the server starts, the queries `get_profit_summary` and `get_profit_e
 #### Job
 A job is an instance of a named task that has been queued to run. Each job has an ID that can be used to track its status. If an ID is not passed explicitly, it is generated internally and returned. These IDs need not be unique, but only a single job with a certain ID can run at any given point. For the next job with the same ID to be scheduled, the previous job has to finish execution. Using non-unique IDs like this is useful in cases where users can be prevented from sending multiple requests for the same reports, like in our usecases.
 
+An application polls with the job ID to check if results are ready for consumption.
+
 #### Results
 The results from an SQL query job are written to a result backend (MySQL or Postgres) from where they can be further read or queried. This is configured in the configuration file. The results from a job are written to a new table named after that job, where schema of the results table is automatically generated from the results of the original SQL query. All fields are transformed into one of these types `BIGINT, DECIMAL, TIMESTAMP, DATE, BOOLEAN, TEXT`.
 
 
 ## Installation
-### 1) Install
 A pre-compiled binary can be downloaded from the [releases](https://github.com/knadh/sql-jobber/releases) page.
-
-or:
-
-`go get github.com/knadh/sql-jobber` to install the binary `sql-jobber` in `$GOPATH/bin`.
 
 ### 2) Configure
 Copy the `config.toml.sample` file as `config.toml` somewhere and edit the configuration values.
@@ -167,17 +169,6 @@ $ curl localhost:6060/tasks/get_profit_entries_by_date/jobs -H "Content-Type: ap
 ## API client
 `github.com/knadh/sql-jobber/client` package can be used as a Go HTTP API client for sql-jobber.
 
-## Running tests locally
-
-Copy test config.
-```shell
-cp ./.circleci/config.toml ./config_test.toml
-```
-
-Modify config file so that database dsn(s), redis addresses matches local setup.
-```shell
-go test -v ./... --config ./config_test.toml
-```
 
 ## License
 Licensed under the MIT License.

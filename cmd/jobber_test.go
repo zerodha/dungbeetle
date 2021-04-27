@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
-	oldflag "flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -23,7 +22,6 @@ import (
 
 // Test jobber container
 var (
-	c              = oldflag.String("config", "config.toml", "Path to the TOML configuration file")
 	testRouter     *chi.Mux
 	testResultDB   *sql.DB
 	testServerRoot = "http://127.0.0.1:6060"
@@ -32,8 +30,8 @@ var (
 // createTempDBs create temporary databases
 func createTempDBs(dbs, resDBs map[string]DBConfig) {
 	tempConn, err := connectDB(DBConfig{
-		Type: ko.String("circle_ci.db.type"),
-		DSN:  ko.String("circle_ci.db.dsn"),
+		Type: "postgres",
+		DSN:  "host=localhost port=5432 user=testUser password=testPass dbname=testDB sslmode=disable",
 	})
 	if err != nil {
 		sLog.Fatal(err)
@@ -63,12 +61,25 @@ func createTempDBs(dbs, resDBs map[string]DBConfig) {
 
 func setup() {
 	// Source and result backend DBs.
-	var (
-		dbs    map[string]DBConfig
-		resDBs map[string]DBConfig
-	)
-	ko.Unmarshal("db", &dbs)
-	ko.Unmarshal("results", &resDBs)
+	dbs := map[string]DBConfig{
+		"my_db": {
+			Type:           "postgres",
+			DSN:            "postgres://testUser:testPass@localhost:5432/testDB?sslmode=disable",
+			MaxIdleConns:   10,
+			MaxActiveConns: 100,
+			ConnectTimeout: 10 * time.Second,
+		},
+	}
+
+	resDBs := map[string]DBConfig{
+		"my_results": {
+			Type:           "postgres",
+			DSN:            "postgres://testUser:testPass@localhost:5432/testDB?sslmode=disable",
+			MaxIdleConns:   10,
+			MaxActiveConns: 100,
+			ConnectTimeout: 10 * time.Second,
+		},
+	}
 
 	// There should be at least one DB.
 	if len(dbs) == 0 {
@@ -111,34 +122,35 @@ func setup() {
 		var (
 			opt = backends.Opt{
 				DBType:         cfg.Type,
-				ResultsTable:   ko.String(fmt.Sprintf("results.%s.results_table", dbName)),
-			loggergedTables: cfg.Unlogged,
+				ResultsTable:   "results_%s",
+				UnloggedTables: cfg.Unlogged,
 			}
-		)logger Create a new backend instance.
-		backend, err := backends.NewSQLBackend(conn, opt, sysLog)
+		)
+		// Create a new backend instance.
+		backend, err := backends.NewSQLBackend(conn, opt, sLog)
 		if err != nil {
-			sysLog.Fatalf("error initializing result backend: %v", err)
+			sLog.Fatalf("error initializing result backend: %v", err)
 		}
 
-		sLog.ResultBackends[dbName] = backend
+		jobber.ResultBackends[dbName] = backend
 	}
 
-	//logger and load SQL queries.
-	for _, d := range ko.Strings("sql-directory") {
-		sysLog.Printf("loading SQL queries from directory: %s", d)
-		tasks, err := loadSQLTasks(d, jobber.DBs, jobber.ResultBackends, ko.String("queue"))
+	// Parse and load SQL queries.
+	for _, d := range []string{"../sql"} {
+		sLog.Printf("loading SQL queries from directory: %s", d)
+		tasks, err := loadSQLTasks(d, jobber.DBs, jobber.ResultBackends, "default-queue")
 		if err != nil {
-			sloggerFatal(err)
+			sLog.Fatal(err)
 		}
 
 		for t, q := range tasks {
 			if _, ok := jobber.Tasks[t]; ok {
-		loggerog.Fatalf("duplicate task %s", t)
+				sLog.Fatalf("duplicate task %s", t)
 			}
 
 			jobber.Tasks[t] = q
 		}
-		sysLog.Printf("loaded %d SQL queries from %s", len(tasks), d)
+		sLog.Printf("loaded %d SQL queries from %s", len(tasks), d)
 	}
 
 	// Register test handlers
@@ -157,17 +169,16 @@ func setup() {
 	// Setup the job server.
 	var err error
 	jobber.Machinery, err = connectJobServer(jobber, &config.Config{
-		Broker:          ko.String("machinery.broker_address"),
-		loggertQueue:    ko.String("queue"),
-		ResultBackend:   ko.String("machinery.state_address"),
-		ResultsExpireIn: ko.Int("result_backend.results_ttl"),
+		Broker:          "redis://localhost:6379/1",
+		DefaultQueue:    "default-queue",
+		ResultBackend:   "redis://localhost:6379/1",
+		ResultsExpireIn: 3600,
 	}, jobber.Tasks)
 	if err != nil {
-		sysLog.Fatal(err)
+		sLog.Fatal(err)
 	}
 
-	jobber.Worker = jobber.Machinery.NewWorker(ko.String("worker-name"),
-		ko.Int("worker-concurrency"))
+	jobber.Worker = jobber.Machinery.NewWorker("sql-jobber", 10)
 	go jobber.Worker.Launch()
 }
 
@@ -258,12 +269,12 @@ func TestPostTask(t *testing.T) {
 		columnName string
 		dataType   string
 	}
-	rsloggerrow{}
+	rs := []row{}
 
 	for rows.Next() {
 		var r row
 		if err := rows.Scan(&r.columnName, &r.dataType); err != nil {
-			sysLog.Fatal(err)
+			sLog.Fatal(err)
 		}
 
 		rs = append(rs, r)

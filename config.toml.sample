@@ -15,6 +15,7 @@ state_address = "redis://127.0.0.1:6379/1"
 # Each job can specify where its results should be stored.
 # If there are multiple backends and jobs don't specify
 # a particular backend, the results will be saved to a *random* one.
+# The optional `unlogged = true` (for postgres) creates faster, unlogged (WAL) tables.
 #
 # type = "postgres" dsn = "postgres://user:password@host:5432/dbname?sslmode=disable"
 # type = "mysql" dsn = "user:password@tcp(host:3306)/dbname"

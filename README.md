@@ -2,7 +2,8 @@
 
 # SQL Jobber
 
-![CircleCI (all branches)](https://img.shields.io/circleci/project/github/knadh/sql-jobber.svg)
+![test workflow](https://github.com/knadh/sql-jobber/actions/workflows/test.yml/badge.svg)
+![release workflow](https://github.com/knadh/sql-jobber/actions/workflows/release.yml/badge.svg)
 
 A highly opinionated, distributed job-queue built specifically for defering and executing SQL read query jobs. 
 

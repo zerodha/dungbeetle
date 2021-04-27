@@ -36,27 +36,27 @@ func createTempDBs(dbs, resDBs map[string]DBConfig) {
 		DSN:  ko.String("circle_ci.db.dsn"),
 	})
 	if err != nil {
-		sysLog.Fatal(err)
+		sLog.Fatal(err)
 	}
 	defer tempConn.Close()
 
 	// Create the temp source postgres dbs.
 	for dbName := range dbs {
 		if _, err := tempConn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName)); err != nil {
-			sysLog.Fatalf("error dropping temp database '%s': %v", dbName, err)
+			sLog.Fatalf("error dropping temp database '%s': %v", dbName, err)
 		}
 		if _, err := tempConn.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)); err != nil {
-			sysLog.Fatalf("error creating temp database '%s': %v", dbName, err)
+			sLog.Fatalf("error creating temp database '%s': %v", dbName, err)
 		}
 	}
 
 	// Create the temp result postgres dbs.
 	for dbName := range resDBs {
 		if _, err := tempConn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName)); err != nil {
-			sysLog.Fatalf("error dropping temp database '%s': %v", dbName, err)
+			sLog.Fatalf("error dropping temp database '%s': %v", dbName, err)
 		}
 		if _, err := tempConn.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)); err != nil {
-			sysLog.Fatalf("error creating temp database '%s': %v", dbName, err)
+			sLog.Fatalf("error creating temp database '%s': %v", dbName, err)
 		}
 	}
 }
@@ -72,10 +72,10 @@ func setup() {
 
 	// There should be at least one DB.
 	if len(dbs) == 0 {
-		sysLog.Fatal("found 0 source databases in config")
+		sLog.Fatal("found 0 source databases in config")
 	}
 	if len(resDBs) == 0 {
-		sysLog.Fatal("found 0 result backends in config")
+		sLog.Fatal("found 0 result backends in config")
 	}
 
 	// Create temp source and result databases
@@ -83,15 +83,15 @@ func setup() {
 
 	// Connect to source DBs.
 	for dbName, cfg := range dbs {
-		sysLog.Printf("connecting to source %s DB %s", cfg.Type, dbName)
+		sLog.Printf("connecting to source %s DB %s", cfg.Type, dbName)
 		conn, err := connectDB(cfg)
 		if err != nil {
-			sysLog.Fatal(err)
+			sLog.Fatal(err)
 		}
 
 		// Create entries schema
 		if _, err := conn.Exec("CREATE TABLE entries (id BIGSERIAL PRIMARY KEY, amount REAL, user_id VARCHAR(6), entry_date DATE, timestamp TIMESTAMP);"); err != nil {
-			sysLog.Fatalf("error running schema: %v", err)
+			sLog.Fatalf("error running schema: %v", err)
 		}
 
 		jobber.DBs[dbName] = conn
@@ -99,10 +99,10 @@ func setup() {
 
 	// Connect to backend DBs.
 	for dbName, cfg := range resDBs {
-		sysLog.Printf("connecting to result backend %s DB %s", cfg.Type, dbName)
+		sLog.Printf("connecting to result backend %s DB %s", cfg.Type, dbName)
 		conn, err := connectDB(cfg)
 		if err != nil {
-			sysLog.Fatal(err)
+			sLog.Fatal(err)
 		}
 
 		// retain result db to perform queries on this db
@@ -112,30 +112,28 @@ func setup() {
 			opt = backends.Opt{
 				DBType:         cfg.Type,
 				ResultsTable:   ko.String(fmt.Sprintf("results.%s.results_table", dbName)),
-				UnloggedTables: cfg.Unlogged,
+			loggergedTables: cfg.Unlogged,
 			}
-		)
-
-		// Create a new backend instance.
+		)logger Create a new backend instance.
 		backend, err := backends.NewSQLBackend(conn, opt, sysLog)
 		if err != nil {
 			sysLog.Fatalf("error initializing result backend: %v", err)
 		}
 
-		jobber.ResultBackends[dbName] = backend
+		sLog.ResultBackends[dbName] = backend
 	}
 
-	// Parse and load SQL queries.
+	//logger and load SQL queries.
 	for _, d := range ko.Strings("sql-directory") {
 		sysLog.Printf("loading SQL queries from directory: %s", d)
 		tasks, err := loadSQLTasks(d, jobber.DBs, jobber.ResultBackends, ko.String("queue"))
 		if err != nil {
-			sysLog.Fatal(err)
+			sloggerFatal(err)
 		}
 
 		for t, q := range tasks {
 			if _, ok := jobber.Tasks[t]; ok {
-				sysLog.Fatalf("duplicate task %s", t)
+		loggerog.Fatalf("duplicate task %s", t)
 			}
 
 			jobber.Tasks[t] = q
@@ -160,7 +158,7 @@ func setup() {
 	var err error
 	jobber.Machinery, err = connectJobServer(jobber, &config.Config{
 		Broker:          ko.String("machinery.broker_address"),
-		DefaultQueue:    ko.String("queue"),
+		loggertQueue:    ko.String("queue"),
 		ResultBackend:   ko.String("machinery.state_address"),
 		ResultsExpireIn: ko.Int("result_backend.results_ttl"),
 	}, jobber.Tasks)
@@ -260,7 +258,7 @@ func TestPostTask(t *testing.T) {
 		columnName string
 		dataType   string
 	}
-	rs := []row{}
+	rsloggerrow{}
 
 	for rows.Next() {
 		var r row

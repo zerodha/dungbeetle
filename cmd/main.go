@@ -40,12 +40,14 @@ type constants struct {
 
 type taskFunc func(jobID string, taskName string, ttl int, args ...interface{}) (int64, error)
 
-// Jobber represents a collection of the tooling required to run a job server.
+// Jobber represents the tooling required to run a job server.
 type Jobber struct {
-	Tasks          Tasks
-	Machinery      *machinery.Server
-	Worker         *machinery.Worker
-	DBs            DBs
+	Tasks     Tasks
+	Machinery *machinery.Server
+	Worker    *machinery.Worker
+	DBs       DBs
+
+	// Named map of one or more result backend DBs.
 	ResultBackends ResultBackends
 
 	Logger *log.Logger
@@ -63,13 +65,13 @@ type DBConfig struct {
 
 var (
 	buildString = "unknown"
-	sysLog      = log.New(os.Stdout, "JOBBER: ", log.Ldate|log.Ltime|log.Lshortfile)
+	sLog        = log.New(os.Stdout, "JOBBER: ", log.Ldate|log.Ltime|log.Lshortfile)
 	ko          = koanf.New(".")
 	jobber      = &Jobber{
 		Tasks:          make(Tasks),
 		DBs:            make(DBs),
 		ResultBackends: make(ResultBackends),
-		Logger:         sysLog,
+		Logger:         sLog,
 	}
 )
 
@@ -77,8 +79,8 @@ func init() {
 	// Command line flags.
 	f := flag.NewFlagSet("config", flag.ContinueOnError)
 	f.Usage = func() {
-		sysLog.Println("SQL Jobber")
-		sysLog.Println(f.FlagUsages())
+		sLog.Println("SQL Jobber")
+		sLog.Println(f.FlagUsages())
 		os.Exit(0)
 	}
 
@@ -102,9 +104,9 @@ func init() {
 	}
 
 	// Load the config file.
-	sysLog.Printf("reading config: %s", ko.String("config"))
+	sLog.Printf("reading config: %s", ko.String("config"))
 	if err := ko.Load(file.Provider(ko.String("config")), toml.Parser()); err != nil {
-		sysLog.Printf("error reading config: %v", err)
+		sLog.Printf("error reading config: %v", err)
 	}
 
 	// Load environment variables and merge into the loaded config.
@@ -112,7 +114,7 @@ func init() {
 		return strings.Replace(
 			strings.ToLower(strings.TrimPrefix(s, "SQL_JOBBER")), "__", ".", -1)
 	}), nil); err != nil {
-		sysLog.Fatalf("error loading config from env: %v", err)
+		sLog.Fatalf("error loading config from env: %v", err)
 	}
 
 	// Override Machinery's default logger.
@@ -124,30 +126,30 @@ func main() {
 	if ko.Bool("worker-only") {
 		mode = "worker only"
 	}
-	sysLog.Printf("starting server %s (queue = %s) in %s mode",
-		ko.String("worker-name"),
-		ko.String("queue"),
-		mode)
+	sLog.Printf("starting server %s (queue = %s) in %s mode",
+		ko.MustString("worker-name"), ko.MustString("queue"), mode)
 
-	// Source and result backend DBs.
-	var (
-		dbs    map[string]DBConfig
-		resDBs map[string]DBConfig
-	)
-	ko.Unmarshal("db", &dbs)
-	ko.Unmarshal("results", &resDBs)
+	// Source DBs.
+	var srcDBs map[string]DBConfig
+	if err := ko.Unmarshal("db", &srcDBs); err != nil {
+		sLog.Fatalf("error reading source DB config: %v", err)
+	}
+	if len(srcDBs) == 0 {
+		sLog.Fatal("found 0 source databases in config")
+	}
 
-	// There should be at least one DB.
-	if len(dbs) == 0 {
-		sysLog.Fatal("found 0 source databases in config")
+	// Result DBs.
+	var resDBs map[string]DBConfig
+	if err := ko.Unmarshal("results", &resDBs); err != nil {
+		sLog.Fatalf("error reading source DB config: %v", err)
 	}
 	if len(resDBs) == 0 {
-		sysLog.Fatal("found 0 result backends in config")
+		sLog.Fatal("found 0 result backends in config")
 	}
 
 	// Connect to source DBs.
-	for dbName, cfg := range dbs {
-		sysLog.Printf("connecting to source %s DB %s", cfg.Type, dbName)
+	for dbName, cfg := range srcDBs {
+		sLog.Printf("connecting to source %s DB %s", cfg.Type, dbName)
 		conn, err := connectDB(cfg)
 		if err != nil {
 			log.Fatal(err)
@@ -158,7 +160,7 @@ func main() {
 
 	// Connect to backend DBs.
 	for dbName, cfg := range resDBs {
-		sysLog.Printf("connecting to result backend %s DB %s", cfg.Type, dbName)
+		sLog.Printf("connecting to result backend %s DB %s", cfg.Type, dbName)
 		conn, err := connectDB(cfg)
 		if err != nil {
 			log.Fatal(err)
@@ -166,12 +168,12 @@ func main() {
 
 		opt := backends.Opt{
 			DBType:         cfg.Type,
-			ResultsTable:   ko.String(fmt.Sprintf("results.%s.results_table", dbName)),
+			ResultsTable:   ko.MustString(fmt.Sprintf("results.%s.results_table", dbName)),
 			UnloggedTables: cfg.Unlogged,
 		}
 
 		// Create a new backend instance.
-		backend, err := backends.NewSQLBackend(conn, opt, sysLog)
+		backend, err := backends.NewSQLBackend(conn, opt, sLog)
 		if err != nil {
 			log.Fatalf("error initializing result backend: %v", err)
 		}
@@ -179,24 +181,25 @@ func main() {
 		jobber.ResultBackends[dbName] = backend
 	}
 
-	// Parse and load SQL queries.
-	for _, d := range ko.Strings("sql-directory") {
-		sysLog.Printf("loading SQL queries from directory: %s", d)
-		tasks, err := loadSQLTasks(d, jobber.DBs, jobber.ResultBackends, ko.String("queue"))
+	// Parse and load SQL queries ("tasks").
+	for _, d := range ko.MustStrings("sql-directory") {
+		sLog.Printf("loading SQL queries from directory: %s", d)
+		tasks, err := loadSQLTasks(d, jobber.DBs, jobber.ResultBackends, ko.MustString("queue"))
 		if err != nil {
-			sysLog.Fatal(err)
+			sLog.Fatal(err)
 		}
 
 		for t, q := range tasks {
 			if _, ok := jobber.Tasks[t]; ok {
-				sysLog.Fatalf("duplicate task %s", t)
+				sLog.Fatalf("duplicate task %s", t)
 			}
 
 			jobber.Tasks[t] = q
 		}
-		sysLog.Printf("loaded %d SQL queries from %s", len(tasks), d)
+
+		sLog.Printf("loaded %d SQL queries from %s", len(tasks), d)
 	}
-	sysLog.Printf("loaded %d tasks in total", len(jobber.Tasks))
+	sLog.Printf("loaded %d tasks in total", len(jobber.Tasks))
 
 	// Bind the server HTTP endpoints.
 	r := chi.NewRouter()
@@ -218,10 +221,10 @@ func main() {
 	// Setup the job server.
 	var err error
 	jobber.Machinery, err = connectJobServer(jobber, &config.Config{
-		Broker:          ko.String("machinery.broker_address"),
-		DefaultQueue:    ko.String("queue"),
-		ResultBackend:   ko.String("machinery.state_address"),
-		ResultsExpireIn: ko.Int("result_backend.results_ttl"),
+		Broker:          ko.MustString("machinery.broker_address"),
+		DefaultQueue:    ko.MustString("queue"),
+		ResultBackend:   ko.MustString("machinery.state_address"),
+		ResultsExpireIn: ko.MustInt("result_backend.results_ttl"),
 	}, jobber.Tasks)
 	if err != nil {
 		log.Fatal(err)
@@ -229,14 +232,14 @@ func main() {
 
 	// Start the HTTP server.
 	if !ko.Bool("worker-only") {
-		sysLog.Printf("starting HTTP server on %s", ko.String("server"))
+		sLog.Printf("starting HTTP server on %s", ko.String("server"))
 		go func() {
-			sysLog.Println(http.ListenAndServe(ko.String("server"), r))
+			sLog.Println(http.ListenAndServe(ko.String("server"), r))
 			os.Exit(0)
 		}()
 	}
 
-	jobber.Worker = jobber.Machinery.NewWorker(ko.String("worker-name"),
+	jobber.Worker = jobber.Machinery.NewWorker(ko.MustString("worker-name"),
 		ko.Int("worker-concurrency"))
 	jobber.Worker.Launch()
 }

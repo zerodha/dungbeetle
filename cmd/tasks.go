@@ -101,7 +101,7 @@ func loadSQLTasks(dir string, dbs DBs, resBackends ResultBackends, defQueue stri
 				queue = strings.TrimSpace(v)
 			}
 
-			sysLog.Printf("-- task %s (%s) (db = %v) (results = %v) (queue = %v)", name, typ,
+			sLog.Printf("-- task %s (%s) (db = %v) (results = %v) (queue = %v)", name, typ,
 				dbsToAttach.GetNames(), resBackendsToAttach.GetNames(), queue)
 			tasks[name] = Task{
 				Name:           name,

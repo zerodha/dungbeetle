@@ -60,24 +60,22 @@ type insertSchema struct {
 // NewSQLBackend returns a new sqlDB result backend instance.
 // It accepts an *sql.DB connection
 func NewSQLBackend(db *sql.DB, opt Opt, l *log.Logger) (ResultBackend, error) {
-	var (
-		r = sqlDB{
-			db:              db,
-			opt:             opt,
-			resTableSchemas: make(map[string]insertSchema),
-			schemaMutex:     sync.RWMutex{},
-			logger:          l,
-		}
-	)
+	s := sqlDB{
+		db:              db,
+		opt:             opt,
+		resTableSchemas: make(map[string]insertSchema),
+		schemaMutex:     sync.RWMutex{},
+		logger:          l,
+	}
 
 	// Config.
 	if opt.ResultsTable != "" {
-		r.opt.ResultsTable = opt.ResultsTable
+		s.opt.ResultsTable = opt.ResultsTable
 	} else {
-		r.opt.ResultsTable = "results_%s"
+		s.opt.ResultsTable = "results_%s"
 	}
 
-	return &r, nil
+	return &s, nil
 }
 
 // NewResultSet returns a new instance of an sqlDB result writer.

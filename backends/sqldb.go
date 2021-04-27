@@ -15,12 +15,17 @@ const (
 	dbTypeMysql    = "mysql"
 )
 
+type Opt struct {
+	DbType        string
+	ResultsTable  string
+	UnloggedTable bool
+}
+
 // sqlDB represents the sqlDB backend.
 type sqlDB struct {
-	db           *sql.DB
-	dbType       string
-	resultsTable string
-	logger       *log.Logger
+	db     *sql.DB
+	opt    *Opt
+	logger *log.Logger
 
 	// The result schemas (CREATE TABLE ...) are dynamically
 	// generated everytime queries are executed based on their result columns.
@@ -53,11 +58,11 @@ type insertSchema struct {
 
 // NewSQLBackend returns a new sqlDB result backend instance.
 // It accepts an *sql.DB connection
-func NewSQLBackend(db *sql.DB, dbType string, resTable string, l *log.Logger) (ResultBackend, error) {
+func NewSQLBackend(db *sql.DB, options *Opt, l *log.Logger) (ResultBackend, error) {
 	var (
 		r = sqlDB{
 			db:              db,
-			dbType:          dbType,
+			opt:             options,
 			resTableSchemas: make(map[string]insertSchema),
 			schemaMutex:     sync.RWMutex{},
 			logger:          l,
@@ -65,10 +70,10 @@ func NewSQLBackend(db *sql.DB, dbType string, resTable string, l *log.Logger) (R
 	)
 
 	// Config.
-	if resTable != "" {
-		r.resultsTable = resTable
+	if options.ResultsTable != "" {
+		r.opt.ResultsTable = options.ResultsTable
 	} else {
-		r.resultsTable = "results_%s"
+		r.opt.ResultsTable = "results_%s"
 	}
 
 	return &r, nil
@@ -87,7 +92,7 @@ func (s *sqlDB) NewResultSet(jobID, taskName string, ttl time.Duration) (ResultS
 		jobID:    jobID,
 		taskName: taskName,
 		backend:  s,
-		tbl:      fmt.Sprintf(s.resultsTable, jobID),
+		tbl:      fmt.Sprintf(s.opt.ResultsTable, jobID),
 		tx:       tx,
 	}, nil
 }
@@ -115,7 +120,7 @@ func (w *sqlDBWriter) RegisterColTypes(cols []string, colTypes []*sql.ColumnType
 		colNameHolder[i] = fmt.Sprintf(`"%s"`, w.cols[i])
 
 		// This will be filled by the driver.
-		if w.backend.dbType == dbTypePostgres {
+		if w.backend.opt.DbType == dbTypePostgres {
 			// Postgres placeholders are $1, $2 ...
 			colValHolder[i] = fmt.Sprintf("$%d", i+1)
 		} else {
@@ -223,11 +228,12 @@ func (s *sqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 		colNameHolder = make([]string, len(cols))
 		colValHolder  = make([]string, len(cols))
 	)
+
 	for i := range cols {
 		colNameHolder[i] = fmt.Sprintf(`"%s"`, cols[i])
 
 		// This will be filled by the driver.
-		if s.dbType == dbTypePostgres {
+		if s.opt.DbType == dbTypePostgres {
 			// Postgres placeholders are $1, $2 ...
 			colValHolder[i] = fmt.Sprintf("$%d", i+1)
 		} else {
@@ -240,6 +246,7 @@ func (s *sqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 		typ      = ""
 		unlogged = ""
 	)
+
 	for i := 0; i < len(cols); i++ {
 		typ = colTypes[i].DatabaseTypeName()
 		switch colTypes[i].DatabaseTypeName() {
@@ -257,7 +264,7 @@ func (s *sqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 		case "BOOLEAN": // Postgres, MySQL
 			typ = "BOOLEAN"
 		case "JSON", "JSONB": // Postgres
-			if s.dbType != dbTypePostgres {
+			if s.opt.DbType != dbTypePostgres {
 				typ = "TEXT"
 			}
 		// _INT4, _INT8, _TEXT represent array types in Postgres
@@ -278,12 +285,13 @@ func (s *sqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 		fields[i] = fmt.Sprintf(`"%s" %s`, cols[i], typ)
 	}
 
-	if s.dbType == dbTypePostgres {
-		unlogged = "UNLOGGED "
+	if s.opt.DbType == dbTypePostgres && s.opt.UnloggedTable {
+		unlogged = "UNLOGGED"
 	}
+
 	return insertSchema{
 		dropTable:   `DROP TABLE IF EXISTS "%s";`,
-		createTable: fmt.Sprintf(`CREATE %sTABLE IF NOT EXISTS "%%s" (%s);`, unlogged, strings.Join(fields, ",")),
+		createTable: fmt.Sprintf(`CREATE %s TABLE IF NOT EXISTS "%%s" (%s);`, unlogged, strings.Join(fields, ",")),
 		insertRow: fmt.Sprintf(`INSERT INTO "%%s" (%s) VALUES (%s)`, strings.Join(colNameHolder, ","),
 			strings.Join(colValHolder, ",")),
 	}

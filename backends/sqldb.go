@@ -236,8 +236,9 @@ func (s *sqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 	}
 
 	var (
-		fields = make([]string, len(cols))
-		typ    = ""
+		fields   = make([]string, len(cols))
+		typ      = ""
+		unlogged = ""
 	)
 	for i := 0; i < len(cols); i++ {
 		typ = colTypes[i].DatabaseTypeName()
@@ -277,9 +278,12 @@ func (s *sqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 		fields[i] = fmt.Sprintf(`"%s" %s`, cols[i], typ)
 	}
 
+	if s.dbType == dbTypePostgres {
+		unlogged = "UNLOGGED "
+	}
 	return insertSchema{
 		dropTable:   `DROP TABLE IF EXISTS "%s";`,
-		createTable: fmt.Sprintf(`CREATE TABLE IF NOT EXISTS "%%s" (%s);`, strings.Join(fields, ",")),
+		createTable: fmt.Sprintf(`CREATE %sTABLE IF NOT EXISTS "%%s" (%s);`, unlogged, strings.Join(fields, ",")),
 		insertRow: fmt.Sprintf(`INSERT INTO "%%s" (%s) VALUES (%s)`, strings.Join(colNameHolder, ","),
 			strings.Join(colValHolder, ",")),
 	}

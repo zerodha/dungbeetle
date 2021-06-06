@@ -5,6 +5,7 @@ go 1.12
 require (
 	cloud.google.com/go/pubsub v1.10.3 // indirect
 	git.apache.org/thrift.git v0.12.0 // indirect
+	github.com/ClickHouse/clickhouse-go v1.4.5 // indirect
 	github.com/RichardKnop/machinery v1.10.5
 	github.com/RichardKnop/redsync v1.2.0 // indirect
 	github.com/aws/aws-sdk-go v1.38.26 // indirect

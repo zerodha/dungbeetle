@@ -24,14 +24,16 @@ import (
 	"github.com/knadh/sql-jobber/backends"
 	flag "github.com/spf13/pflag"
 
-	// MySQL and Postgres drivers.
+	// Clickhouse, MySQL and Postgres drivers.
+	_ "github.com/ClickHouse/clickhouse-go"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 )
 
 const (
-	dbMySQL    = "mysql"
-	dbPostgres = "postgres"
+	dbMySQL      = "mysql"
+	dbPostgres   = "postgres"
+	dbClickHouse = "clickhouse"
 )
 
 type constants struct {

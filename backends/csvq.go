@@ -10,22 +10,22 @@ import (
 	"time"
 )
 
-// sqlDB represents the sqlDB backend.
-type sqlDB struct {
+// csvqDB represents the csvqDB backend.
+type csvqDB struct {
 	SqlDB
 }
 
-// sqlDBWriter represents a writer that saves results
-// to a sqlDB backend.
-type sqlDBWriter struct {
-	Writer
-	SqlDB
+// csvqDBWriter represents a writer that saves results
+// to a csvqDB backend.
+type csvqDBWriter struct {
+	sqlDBWriter
 }
 
-// NewSQLBackend returns a new sqlDB result backend instance.
+// NewSQLBackend returns a new csvqDB result backend instance.
 // It accepts an *sql.DB connection
-func NewSQLBackend(db *sql.DB, opt Opt, l *log.Logger) (ResultBackend, error) {
-	s := sqlDB{
+func NewCsvqBackend(db *sql.DB, opt Opt, l *log.Logger) (ResultBackend, error) {
+
+	s := csvqDB{
 		SqlDB{
 			db:              db,
 			opt:             opt,
@@ -45,23 +45,25 @@ func NewSQLBackend(db *sql.DB, opt Opt, l *log.Logger) (ResultBackend, error) {
 	return &s, nil
 }
 
-// NewResultSet returns a new instance of an sqlDB result writer.
+// NewResultSet returns a new instance of an csvqDB result writer.
 // A new instance should be acquired for every individual job result
 // to be written to the backend and then thrown away.
-func (s *sqlDB) NewResultSet(jobID, taskName string, ttl time.Duration) (ResultSet, error) {
+func (s *csvqDB) NewResultSet(jobID, taskName string, ttl time.Duration) (ResultSet, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 
-	return &sqlDBWriter{
-		Writer{
-			jobID:    jobID,
-			taskName: taskName,
-			tbl:      fmt.Sprintf(s.opt.ResultsTable, jobID),
-			tx:       tx,
+	return &csvqDBWriter{
+		sqlDBWriter{
+			Writer{
+				jobID:    jobID,
+				taskName: taskName,
+				tbl:      fmt.Sprintf(s.opt.ResultsTable, jobID),
+				tx:       tx,
+			},
+			s.SqlDB,
 		},
-		s.SqlDB,
 	}, nil
 }
 
@@ -70,7 +72,7 @@ func (s *sqlDB) NewResultSet(jobID, taskName string, ttl time.Duration) (ResultS
 // creates a CREATE TABLE() schema for the results table with the structure of the
 // particular taskName, and caches it be used for every subsequent result db creation
 // and population. This should only be called once for each kind of taskName.
-func (w *sqlDBWriter) RegisterColTypes(cols []string, colTypes []*sql.ColumnType) error {
+func (w *csvqDBWriter) RegisterColTypes(cols []string, colTypes []*sql.ColumnType) error {
 	if w.IsColTypesRegistered() {
 		return errors.New("column types are already registered")
 	}
@@ -107,21 +109,11 @@ func (w *sqlDBWriter) RegisterColTypes(cols []string, colTypes []*sql.ColumnType
 	return nil
 }
 
-// IsColTypesRegistered checks whether the column types for a particular taskName's
-// structure is registered in the backend.
-func (w *sqlDBWriter) IsColTypesRegistered() bool {
-	w.schemaMutex.RLock()
-	_, ok := w.resTableSchemas[w.taskName]
-	w.schemaMutex.RUnlock()
-
-	return ok
-}
-
 // WriteCols writes the column (headers) of a result set to the backend.
-// Internally, it creates a sqlDB database and creates a results table
+// Internally, it creates a csvqDB database and creates a results table
 // based on the schema RegisterColTypes() would've created and cached.
 // This should only be called once on a ResultWriter instance.
-func (w *sqlDBWriter) WriteCols(cols []string) error {
+func (w *csvqDBWriter) WriteCols(cols []string) error {
 	if w.colsWritten {
 		return fmt.Errorf("columns for '%s' are already written", w.taskName)
 	}
@@ -141,9 +133,10 @@ func (w *sqlDBWriter) WriteCols(cols []string) error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(fmt.Sprintf(rSchema.dropTable, w.tbl)); err != nil {
-		return err
-	}
+	// TODO - This should configurable... maybe in some case not supported or need incremental update..
+	// if _, err := tx.Exec(fmt.Sprintf(rSchema.dropTable, w.tbl)); err != nil {
+	// 	return err
+	// }
 
 	if _, err := tx.Exec(fmt.Sprintf(rSchema.createTable, w.tbl)); err != nil {
 		return err
@@ -155,52 +148,17 @@ func (w *sqlDBWriter) WriteCols(cols []string) error {
 	return err
 }
 
-// WriteRow writes an individual row from a result set to the backend.
-// Internally, it INSERT()s the given row into the sqlDB results table.
-func (w *sqlDBWriter) WriteRow(row []interface{}) error {
-	w.schemaMutex.RLock()
-	rSchema, ok := w.resTableSchemas[w.taskName]
-	w.schemaMutex.RUnlock()
-
-	if !ok {
-		return fmt.Errorf("column types for '%s' have not been registered", w.taskName)
-	}
-
-	_, err := w.tx.Exec(fmt.Sprintf(rSchema.insertRow, w.tbl), row...)
-
-	return err
-}
-
-// Flush flushes the rows written into the sqlDB pipe.
-func (w *sqlDBWriter) Flush() error {
-	err := w.tx.Commit()
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Close closes the active sqlDB connection.
-func (w *sqlDBWriter) Close() error {
-	if w.tx != nil {
-		return w.tx.Rollback()
-	}
-
-	return nil
-}
-
-// TODO When refactor could back to a private method...
 // createTableSchema takes an SQL query results, gets its column names and types,
-// and generates a sqlDB CREATE TABLE() schema for the results.
-func (s *sqlDBWriter) CreateTableSchema(cols []string, colTypes []*sql.ColumnType) insertSchema {
+// and generates a csvqDB CREATE TABLE() schema for the results.
+func (s *csvqDBWriter) CreateTableSchema(cols []string, colTypes []*sql.ColumnType) insertSchema {
 	var (
 		colNameHolder = make([]string, len(cols))
 		colValHolder  = make([]string, len(cols))
 	)
 
 	for i := range cols {
-		colNameHolder[i] = fmt.Sprintf(`"%s"`, cols[i])
+		// TODO - In some dialects double quote not supported...
+		colNameHolder[i] = fmt.Sprintf(`%s`, cols[i])
 
 		// This will be filled by the driver.
 		if s.opt.DBType == DbTypePostgres {
@@ -252,7 +210,8 @@ func (s *sqlDBWriter) CreateTableSchema(cols []string, colTypes []*sql.ColumnTyp
 			typ += " NOT NULL"
 		}
 
-		fields[i] = fmt.Sprintf(`"%s" %s`, cols[i], typ)
+		// TODO - In some dialects double quote not supported...
+		fields[i] = fmt.Sprintf(`%s`, cols[i])
 	}
 
 	// If the DB is Postgres, optionally create an "unlogged" table that disables
@@ -263,9 +222,9 @@ func (s *sqlDBWriter) CreateTableSchema(cols []string, colTypes []*sql.ColumnTyp
 	}
 
 	return insertSchema{
+		// TODO - In some dialects...
 		dropTable:   `DROP TABLE IF EXISTS "%s";`,
-		createTable: fmt.Sprintf(`CREATE %s TABLE IF NOT EXISTS "%%s" (%s);`, unlogged, strings.Join(fields, ",")),
-		insertRow: fmt.Sprintf(`INSERT INTO "%%s" (%s) VALUES (%s)`, strings.Join(colNameHolder, ","),
-			strings.Join(colValHolder, ",")),
+		createTable: fmt.Sprintf(`CREATE %s TABLE %%s (%s);`, unlogged, strings.Join(fields, ",")),
+		insertRow:   fmt.Sprintf(`INSERT INTO %%s (%s) VALUES (%s)`, strings.Join(colNameHolder, ","), strings.Join(colValHolder, ",")),
 	}
 }

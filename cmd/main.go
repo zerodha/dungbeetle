@@ -28,11 +28,18 @@ import (
 	_ "github.com/ClickHouse/clickhouse-go"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
+
+	// TODO - Adding drivers...
+	_ "github.com/mithrandie/csvq-driver" // sql.Open("csvq", "/path/to/data/directory")
+	_ "github.com/sijms/go-ora/v2"        // sql.Open("oracle", "oracle://OT:yourpassword@localhost/XE")
 )
 
 const (
-	dbMySQL      = "mysql"
-	dbPostgres   = "postgres"
+	dbMySQL      = backends.DbTypeMysql
+	dbPostgres   = backends.DbTypePostgres
+	dbTypeOracle = backends.DbTypeOracle
+	dbTypeCsvq   = backends.DbTypeCsvq
+
 	dbClickHouse = "clickhouse"
 )
 
@@ -175,8 +182,21 @@ func main() {
 		}
 
 		// Create a new backend instance.
-		backend, err := backends.NewSQLBackend(conn, opt, sLog)
-		if err != nil {
+		var backend backends.ResultBackend
+		var errI error
+
+		switch cfg.Type {
+		case dbMySQL:
+		case dbPostgres:
+		case dbTypeOracle:
+			backend, errI = backends.NewSQLBackend(conn, opt, sLog)
+
+		case dbTypeCsvq:
+			backend, errI = backends.NewCsvqBackend(conn, opt, sLog)
+
+		}
+
+		if errI != nil {
 			log.Fatalf("error initializing result backend: %v", err)
 		}
 

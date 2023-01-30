@@ -142,6 +142,9 @@ func writeResults(jobID string, task *Task, ttl time.Duration, rows *sql.Rows, j
 	}
 	numCols := len(cols)
 
+	// TODO Move to configuration
+	const batchSize = 2
+
 	// If the column types for this particular taskName
 	// have not been registered, do it.
 	if !w.IsColTypesRegistered() {
@@ -150,13 +153,15 @@ func writeResults(jobID string, task *Task, ttl time.Duration, rows *sql.Rows, j
 			return numRows, err
 		}
 
-		w.RegisterColTypes(cols, colTypes)
+		w.RegisterColTypes(cols, colTypes, batchSize)
 	}
 
 	// Write the results columns / headers.
 	if err := w.WriteCols(cols); err != nil {
 		return numRows, fmt.Errorf("error writing columns to result backend: %v", err)
 	}
+
+	bulkCols := make([]interface{}, 0)
 
 	// Gymnastics to read arbitrary types from the row.
 	var (
@@ -172,11 +177,24 @@ func writeResults(jobID string, task *Task, ttl time.Duration, rows *sql.Rows, j
 		if err := rows.Scan(resPointers...); err != nil {
 			return numRows, err
 		}
-		if err := w.WriteRow(resCols); err != nil {
-			return numRows, fmt.Errorf("error writing row to result backend: %v", err)
+
+		bulkCols = append(bulkCols, resCols...)
+
+		if (numRows+1)%batchSize == 0 {
+			if err := w.WriteRowBulk(bulkCols); err != nil {
+				return numRows, fmt.Errorf("error writing row to result backend: %v", err)
+			}
+
+			bulkCols = make([]interface{}, 0)
 		}
 
 		numRows++
+	}
+
+	if (numRows % batchSize) > 0 {
+		if err := w.WriteRow(bulkCols); err != nil {
+			return numRows, fmt.Errorf("error writing row to result backend: %v", err)
+		}
 	}
 
 	if err := w.Flush(); err != nil {

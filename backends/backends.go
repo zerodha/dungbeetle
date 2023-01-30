@@ -16,10 +16,11 @@ type ResultBackend interface {
 // ResultSet represents the set of results from an individual
 // job that's executed.
 type ResultSet interface {
-	RegisterColTypes([]string, []*sql.ColumnType) error
+	RegisterColTypes([]string, []*sql.ColumnType, int) error
 	IsColTypesRegistered() bool
 	WriteCols([]string) error
 	WriteRow([]interface{}) error
+	WriteRowBulk([]interface{}) error
 	Flush() error
 	Close() error
 }

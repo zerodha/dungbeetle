@@ -151,12 +151,7 @@ func writeResults(jobID string, task *Task, ttl time.Duration, rows *sql.Rows, j
 		}
 
 		w.RegisterColTypes(cols, colTypes)
-
-		// // TODO Need call a refactor method... doing this...
-		// w.schemaMutex.Lock()
-		// w.resTableSchemas[w.taskName] = w.CreateTableSchema(cols, colTypes)
-		// w.schemaMutex.Unlock()
-
+		w.CreateTableSchema(cols, colTypes)
 	}
 
 	// Write the results columns / headers.

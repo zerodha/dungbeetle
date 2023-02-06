@@ -2,7 +2,6 @@ package backends
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -67,48 +66,6 @@ func (s *csvqDB) NewResultSet(jobID, taskName string, ttl time.Duration) (Result
 	}, nil
 }
 
-// RegisterColTypes registers the column types of a particular taskName's result set.
-// Internally, it translates sql types into the simpler sqlDB (SQLite 3) types,
-// creates a CREATE TABLE() schema for the results table with the structure of the
-// particular taskName, and caches it be used for every subsequent result db creation
-// and population. This should only be called once for each kind of taskName.
-func (w *csvqDBWriter) RegisterColTypes(cols []string, colTypes []*sql.ColumnType) error {
-	if w.IsColTypesRegistered() {
-		return errors.New("column types are already registered")
-	}
-
-	w.cols = make([]string, len(cols))
-	copy(w.cols, cols)
-
-	// Create the insert statement.
-	// INSERT INTO xxx (col1, col2...) VALUES.
-	var (
-		colNameHolder = make([]string, len(cols))
-		colValHolder  = make([]string, len(cols))
-	)
-	for i := range w.cols {
-		colNameHolder[i] = fmt.Sprintf(`"%s"`, w.cols[i])
-
-		// This will be filled by the driver.
-		if w.opt.DBType == DbTypePostgres {
-			// Postgres placeholders are $1, $2 ...
-			colValHolder[i] = fmt.Sprintf("$%d", i+1)
-		} else {
-			colValHolder[i] = "?"
-		}
-	}
-
-	ins := fmt.Sprintf(`INSERT INTO "%%s" (%s) `, strings.Join(colNameHolder, ","))
-	ins += fmt.Sprintf("VALUES (%s)", strings.Join(colValHolder, ","))
-
-	// TODO Need extract to other method
-	w.schemaMutex.Lock()
-	w.resTableSchemas[w.taskName] = w.CreateTableSchema(cols, colTypes)
-	w.schemaMutex.Unlock()
-
-	return nil
-}
-
 // WriteCols writes the column (headers) of a result set to the backend.
 // Internally, it creates a csvqDB database and creates a results table
 // based on the schema RegisterColTypes() would've created and cached.
@@ -133,11 +90,6 @@ func (w *csvqDBWriter) WriteCols(cols []string) error {
 	}
 	defer tx.Rollback()
 
-	// TODO - This should configurable... maybe in some case not supported or need incremental update..
-	// if _, err := tx.Exec(fmt.Sprintf(rSchema.dropTable, w.tbl)); err != nil {
-	// 	return err
-	// }
-
 	if _, err := tx.Exec(fmt.Sprintf(rSchema.createTable, w.tbl)); err != nil {
 		return err
 	}
@@ -151,13 +103,14 @@ func (w *csvqDBWriter) WriteCols(cols []string) error {
 // createTableSchema takes an SQL query results, gets its column names and types,
 // and generates a csvqDB CREATE TABLE() schema for the results.
 func (s *csvqDBWriter) CreateTableSchema(cols []string, colTypes []*sql.ColumnType) insertSchema {
+
+	s.schemaMutex.Lock()
 	var (
 		colNameHolder = make([]string, len(cols))
 		colValHolder  = make([]string, len(cols))
 	)
 
 	for i := range cols {
-		// TODO - In some dialects double quote not supported...
 		colNameHolder[i] = fmt.Sprintf(`%s`, cols[i])
 
 		// This will be filled by the driver.
@@ -210,7 +163,6 @@ func (s *csvqDBWriter) CreateTableSchema(cols []string, colTypes []*sql.ColumnTy
 			typ += " NOT NULL"
 		}
 
-		// TODO - In some dialects double quote not supported...
 		fields[i] = fmt.Sprintf(`%s`, cols[i])
 	}
 
@@ -221,10 +173,14 @@ func (s *csvqDBWriter) CreateTableSchema(cols []string, colTypes []*sql.ColumnTy
 		unlogged = "UNLOGGED"
 	}
 
-	return insertSchema{
-		// TODO - In some dialects...
+	result := insertSchema{
 		dropTable:   `DROP TABLE IF EXISTS "%s";`,
 		createTable: fmt.Sprintf(`CREATE %s TABLE %%s (%s);`, unlogged, strings.Join(fields, ",")),
 		insertRow:   fmt.Sprintf(`INSERT INTO %%s (%s) VALUES (%s)`, strings.Join(colNameHolder, ","), strings.Join(colValHolder, ",")),
 	}
+
+	s.resTableSchemas[s.taskName] = result
+	s.schemaMutex.Unlock()
+
+	return result
 }

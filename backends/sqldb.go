@@ -99,11 +99,6 @@ func (w *sqlDBWriter) RegisterColTypes(cols []string, colTypes []*sql.ColumnType
 	ins := fmt.Sprintf(`INSERT INTO "%%s" (%s) `, strings.Join(colNameHolder, ","))
 	ins += fmt.Sprintf("VALUES (%s)", strings.Join(colValHolder, ","))
 
-	// TODO Need extract to other method
-	w.schemaMutex.Lock()
-	w.resTableSchemas[w.taskName] = w.CreateTableSchema(cols, colTypes)
-	w.schemaMutex.Unlock()
-
 	return nil
 }
 
@@ -190,10 +185,12 @@ func (w *sqlDBWriter) Close() error {
 	return nil
 }
 
-// TODO When refactor could back to a private method...
 // createTableSchema takes an SQL query results, gets its column names and types,
 // and generates a sqlDB CREATE TABLE() schema for the results.
 func (s *sqlDBWriter) CreateTableSchema(cols []string, colTypes []*sql.ColumnType) insertSchema {
+
+	s.schemaMutex.Lock()
+
 	var (
 		colNameHolder = make([]string, len(cols))
 		colValHolder  = make([]string, len(cols))
@@ -262,10 +259,15 @@ func (s *sqlDBWriter) CreateTableSchema(cols []string, colTypes []*sql.ColumnTyp
 		unlogged = "UNLOGGED"
 	}
 
-	return insertSchema{
+	result := insertSchema{
 		dropTable:   `DROP TABLE IF EXISTS "%s";`,
 		createTable: fmt.Sprintf(`CREATE %s TABLE IF NOT EXISTS "%%s" (%s);`, unlogged, strings.Join(fields, ",")),
 		insertRow: fmt.Sprintf(`INSERT INTO "%%s" (%s) VALUES (%s)`, strings.Join(colNameHolder, ","),
 			strings.Join(colValHolder, ",")),
 	}
+
+	s.resTableSchemas[s.taskName] = result
+	s.schemaMutex.Unlock()
+
+	return result
 }

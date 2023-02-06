@@ -19,12 +19,12 @@ type ResultBackend interface {
 // job that's executed.
 type ResultSet interface {
 	RegisterColTypes([]string, []*sql.ColumnType) error
+	CreateTableSchema(cols []string, colTypes []*sql.ColumnType) insertSchema
 	IsColTypesRegistered() bool
 	WriteCols([]string) error
 	WriteRow([]interface{}) error
 	Flush() error
 	Close() error
-	CreateTableSchema(cols []string, colTypes []*sql.ColumnType) insertSchema
 }
 
 const (

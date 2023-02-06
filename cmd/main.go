@@ -29,7 +29,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 
-	// TODO - Adding drivers...
+	// Adding drivers...
 	_ "github.com/mithrandie/csvq-driver" // sql.Open("csvq", "/path/to/data/directory")
 	_ "github.com/sijms/go-ora/v2"        // sql.Open("oracle", "oracle://OT:yourpassword@localhost/XE")
 )

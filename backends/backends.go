@@ -20,7 +20,8 @@ type ResultSet interface {
 	IsColTypesRegistered() bool
 	WriteCols([]string) error
 	WriteRow([]interface{}) error
-	WriteRowBulk([]interface{}) error
+	WriteRowBulkDefault([]interface{}) error
+	WriteRowBulk(rows []interface{}, batchSize int64) error
 	Flush() error
 	Close() error
 }

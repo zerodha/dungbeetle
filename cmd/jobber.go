@@ -143,7 +143,7 @@ func writeResults(jobID string, task *Task, ttl time.Duration, rows *sql.Rows, j
 	numCols := len(cols)
 
 	// TODO Move to configuration
-	const batchSize = 2
+	const batchSize = 3
 
 	// If the column types for this particular taskName
 	// have not been registered, do it.
@@ -177,22 +177,19 @@ func writeResults(jobID string, task *Task, ttl time.Duration, rows *sql.Rows, j
 		if err := rows.Scan(resPointers...); err != nil {
 			return numRows, err
 		}
-
 		bulkCols = append(bulkCols, resCols...)
+		numRows++
 
-		if (numRows+1)%batchSize == 0 {
-			if err := w.WriteRowBulk(bulkCols); err != nil {
+		if numRows%batchSize == 0 {
+			if err := w.WriteRowBulkDefault(bulkCols); err != nil {
 				return numRows, fmt.Errorf("error writing row to result backend: %v", err)
 			}
-
 			bulkCols = make([]interface{}, 0)
 		}
-
-		numRows++
 	}
 
 	if (numRows % batchSize) > 0 {
-		if err := w.WriteRow(bulkCols); err != nil {
+		if err := w.WriteRowBulk(bulkCols, numRows%batchSize); err != nil {
 			return numRows, fmt.Errorf("error writing row to result backend: %v", err)
 		}
 	}

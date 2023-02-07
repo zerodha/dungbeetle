@@ -56,6 +56,7 @@ type insertSchema struct {
 	createTable   string
 	insertRow     string
 	insertRowBulk string
+	colNameHolder []string
 }
 
 // NewSQLBackend returns a new sqlDB result backend instance.
@@ -202,7 +203,7 @@ func (w *sqlDBWriter) WriteRow(row []interface{}) error {
 	return err
 }
 
-func (w *sqlDBWriter) WriteRowBulk(row []interface{}) error {
+func (w *sqlDBWriter) WriteRowBulkDefault(row []interface{}) error {
 	w.backend.schemaMutex.RLock()
 	rSchema, ok := w.backend.resTableSchemas[w.taskName]
 	w.backend.schemaMutex.RUnlock()
@@ -212,6 +213,21 @@ func (w *sqlDBWriter) WriteRowBulk(row []interface{}) error {
 	}
 
 	_, err := w.tx.Exec(fmt.Sprintf(rSchema.insertRowBulk, w.tbl), row...)
+
+	return err
+}
+
+func (w *sqlDBWriter) WriteRowBulk(row []interface{}, batchSize int64) error {
+	w.backend.schemaMutex.RLock()
+	rSchema, ok := w.backend.resTableSchemas[w.taskName]
+	w.backend.schemaMutex.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("column types for '%s' have not been registered", w.taskName)
+	}
+
+	_, err := w.tx.Exec(fmt.Sprintf(
+		generateParamToInsert(w.backend.opt.DBType, rSchema.colNameHolder, int(batchSize)), w.tbl), row...)
 
 	return err
 }
@@ -239,9 +255,8 @@ func (w *sqlDBWriter) Close() error {
 // and generates a sqlDB CREATE TABLE() schema for the results.
 func (s *sqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType, rows int) insertSchema {
 	var (
-		colNameHolder    = make([]string, len(cols))
-		colValHolder     = make([]string, len(cols))
-		colBulkValHolder = make([]string, len(cols))
+		colNameHolder = make([]string, len(cols))
+		colValHolder  = make([]string, len(cols))
 	)
 
 	for i := range cols {
@@ -307,25 +322,35 @@ func (s *sqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType, row
 		unlogged = "UNLOGGED"
 	}
 
-	var repeatedValues = ""
-	for i := 0; i < rows; i++ {
-
-		if s.opt.DBType == dbTypePostgres {
-			// Postgres placeholders are $1, $2 ...
-			for j := 0; j < len(colBulkValHolder); j++ {
-				colBulkValHolder[j] = fmt.Sprintf("$%d", (j+1)+(i*len(colBulkValHolder)))
-			}
-		}
-		repeatedValues = repeatedValues + "(" + strings.Join(colBulkValHolder, ",") + "), "
-	}
-	repeatedValues = repeatedValues[:len(repeatedValues)-2]
-
-	stringInsertBulk := fmt.Sprintf(`INSERT INTO "%%s" (%s) VALUES %s`, strings.Join(colNameHolder, ","), repeatedValues)
+	stringInsertBulk := generateParamToInsert(s.opt.DBType, colNameHolder, rows)
 
 	return insertSchema{
 		dropTable:     `DROP TABLE IF EXISTS "%s";`,
 		createTable:   fmt.Sprintf(`CREATE %s TABLE IF NOT EXISTS "%%s" (%s);`, unlogged, strings.Join(fields, ",")),
 		insertRow:     fmt.Sprintf(`INSERT INTO "%%s" (%s) VALUES (%s)`, strings.Join(colNameHolder, ","), strings.Join(colValHolder, ",")),
 		insertRowBulk: stringInsertBulk,
+		colNameHolder: colNameHolder,
 	}
+}
+
+func generateParamToInsert(dbType string, colNameHolder []string, rows int) string {
+	var colBulkValHolder = make([]string, len(colNameHolder))
+
+	var repeatedValues = ""
+	for i := 0; i < rows; i++ {
+		if dbType == dbTypePostgres {
+			// Postgres placeholders are $1, $2 ...
+			for j := 0; j < len(colBulkValHolder); j++ {
+				colBulkValHolder[j] = fmt.Sprintf("$%d", (j+1)+(i*len(colBulkValHolder)))
+			}
+		} else {
+			for j := 0; j < len(colBulkValHolder); j++ {
+				colBulkValHolder[j] = "?"
+			}
+		}
+		repeatedValues = repeatedValues + "(" + strings.Join(colBulkValHolder, ",") + "), "
+	}
+	repeatedValues = repeatedValues[:len(repeatedValues)-2]
+
+	return fmt.Sprintf(`INSERT INTO "%%s" (%s) VALUES %s`, strings.Join(colNameHolder, ","), repeatedValues)
 }

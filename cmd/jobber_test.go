@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -14,24 +15,30 @@ import (
 	"time"
 
 	"github.com/RichardKnop/machinery/v1/config"
+	"github.com/docker/go-connections/nat"
 	"github.com/go-chi/chi"
 	"github.com/knadh/sql-jobber/backends"
 	"github.com/knadh/sql-jobber/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // Test jobber container
 var (
-	testRouter     *chi.Mux
-	testResultDB   *sql.DB
-	testServerRoot = "http://127.0.0.1:6060"
+	testRouter      *chi.Mux
+	testResultDB    *sql.DB
+	testServerRoot  = "http://127.0.0.1:6060"
+	connStr         = "host=localhost port=5432 user=testUser password=testPass dbname=testDB sslmode=disable"
+	postgresConnStr = "postgres://testUser:testPass@localhost:5432/testDB?sslmode=disable"
+	redisUrl        = "redis://localhost:6379"
 )
 
 // createTempDBs create temporary databases
 func createTempDBs(dbs, resDBs map[string]DBConfig) {
+
 	tempConn, err := connectDB(DBConfig{
 		Type: "postgres",
-		DSN:  "host=localhost port=5432 user=testUser password=testPass dbname=testDB sslmode=disable",
+		DSN:  connStr,
 	})
 	if err != nil {
 		sLog.Fatal(err)
@@ -59,12 +66,63 @@ func createTempDBs(dbs, resDBs map[string]DBConfig) {
 	}
 }
 
+func setup_testContainer() {
+	ctx := context.Background()
+
+	const dbname = "test-db"
+	const user = "postgres"
+	const password = "password"
+
+	port, _ := nat.NewPort("tcp", "5432")
+	// require.NoError(t, err)
+
+	container, _ := setupPostgres(ctx,
+		WithPort(port.Port()),
+		WithInitialDatabase(user, password, dbname),
+		WithWaitStrategy(wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(5*time.Second)),
+	)
+	// if err != nil {
+	// 	t.Fatal(err)
+	// }
+
+	// Clean up the container after the test is complete
+	// t.Cleanup(func() {
+	// 	if err := container.Terminate(ctx); err != nil {
+	// 		t.Fatalf("failed to terminate container: %s", err)
+	// 	}
+	// })
+
+	containerPort, _ := container.MappedPort(ctx, port)
+	// assert.NoError(t, err)
+
+	host, _ := container.Host(ctx)
+	// assert.NoError(t, err)
+
+	connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", host, containerPort.Port(), user, password, dbname)
+
+	postgresConnStr = fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", user, password, host, containerPort.Port(), dbname)
+
+	redisContainer, _ := setupRedis(ctx)
+	// if err != nil {
+	// 	t.Fatal(err)
+	// }
+	// t.Cleanup(func() {
+	// 	if err := redisContainer.Terminate(ctx); err != nil {
+	// 		t.Fatalf("failed to terminate container: %s", err)
+	// 	}
+	// })
+
+	redisUrl = redisContainer.URI
+
+}
+
 func setup() {
+
 	// Source and result backend DBs.
 	dbs := map[string]DBConfig{
 		"my_db": {
 			Type:           "postgres",
-			DSN:            "postgres://testUser:testPass@localhost:5432/testDB?sslmode=disable",
+			DSN:            postgresConnStr,
 			MaxIdleConns:   10,
 			MaxActiveConns: 100,
 			ConnectTimeout: 10 * time.Second,
@@ -74,7 +132,7 @@ func setup() {
 	resDBs := map[string]DBConfig{
 		"my_results": {
 			Type:           "postgres",
-			DSN:            "postgres://testUser:testPass@localhost:5432/testDB?sslmode=disable",
+			DSN:            postgresConnStr,
 			MaxIdleConns:   10,
 			MaxActiveConns: 100,
 			ConnectTimeout: 10 * time.Second,
@@ -169,9 +227,9 @@ func setup() {
 	// Setup the job server.
 	var err error
 	jobber.Machinery, err = connectJobServer(jobber, &config.Config{
-		Broker:          "redis://localhost:6379/1",
+		Broker:          redisUrl + "/1",
 		DefaultQueue:    "default-queue",
-		ResultBackend:   "redis://localhost:6379/1",
+		ResultBackend:   redisUrl + "/1",
 		ResultsExpireIn: 3600,
 	}, jobber.Tasks)
 	if err != nil {
@@ -209,6 +267,7 @@ func testRequest(t *testing.T, method, path string, body io.Reader, dest interfa
 
 // TestMain perform setup and teardown for tests.
 func TestMain(m *testing.M) {
+	// setup_testContainer()
 	setup()
 	code := m.Run()
 	os.Exit(code)

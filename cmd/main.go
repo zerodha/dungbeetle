@@ -1,8 +1,5 @@
 package main
 
-// (c) Kailash Nadh, 2018. https://nadh.in
-// MIT License.
-
 import (
 	"fmt"
 	"log"
@@ -40,7 +37,7 @@ type constants struct {
 	ResultsDB string
 }
 
-type taskFunc func(jobID string, taskName string, ttl int, args ...interface{}) (int64, error)
+type taskFunc func(jobID string, taskName, db string, ttl int, args ...interface{}) (int64, error)
 
 // Jobber represents the tooling required to run a job server.
 type Jobber struct {

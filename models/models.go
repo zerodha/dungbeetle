@@ -15,6 +15,7 @@ type JobReq struct {
 	Retries  int      `json:"retries"`
 	TTL      int      `json:"ttl"`
 	Args     []string `json:"args"`
+	DB       string   `json:"db"`
 
 	ttlDuration time.Duration
 }

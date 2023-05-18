@@ -12,8 +12,13 @@ import (
 type DBs map[string]*sql.DB
 
 // Get returns an *sql.DB from the DBs map by name.
-func (d DBs) Get(dbName string) *sql.DB {
-	return d[dbName]
+func (d DBs) Get(dbName string) (*sql.DB, error) {
+	db, ok := d[dbName]
+	if !ok {
+		return nil, fmt.Errorf("unknown db: %s", dbName)
+	}
+
+	return db, nil
 }
 
 // GetRandom returns a random *sql.DB from the DBs map.

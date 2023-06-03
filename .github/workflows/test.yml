@@ -43,10 +43,10 @@ jobs:
     steps:
     - name: Install Go
       if: success()
-      uses: actions/setup-go@v2
+      uses: actions/setup-go@v4
       with:
         go-version: ${{ matrix.go-version }}
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
     - name: Run tests
       run: go test ./cmd -v -covermode=count

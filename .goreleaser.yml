@@ -1,27 +1,26 @@
 before:
-    hooks:
-      - go mod tidy
+  hooks:
+    - go mod tidy
   
-  builds:
-    - env:
-        - CGO_ENABLED=0
-      binary: sql-jobber
-      goos:
-        - windows
-        - darwin
-        - linux
-        - freebsd
-        - openbsd
-        - netbsd
-      goarch:
-        - amd64
-      dir: ./cmd/
-  
-  archives:
-    - format: tar.gz
-      rlcp: true
-      files:
-        - config.toml.sample
-        - README.md
-        - LICENSE
-  
+builds:
+  - env:
+      - CGO_ENABLED=0
+    binary: sql-jobber
+    goos:
+      - windows
+      - darwin
+      - linux
+      - freebsd
+      - openbsd
+      - netbsd
+    goarch:
+      - amd64
+    dir: ./cmd/
+
+archives:
+  - format: tar.gz
+    rlcp: true
+    files:
+      - config.toml.sample
+      - README.md
+      - LICENSE

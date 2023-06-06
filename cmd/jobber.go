@@ -3,16 +3,19 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
-	machinery "github.com/RichardKnop/machinery/v1"
-	"github.com/RichardKnop/machinery/v1/config"
-	"github.com/RichardKnop/machinery/v1/tasks"
+	"github.com/kalbhor/tasqueue"
+	bredis "github.com/kalbhor/tasqueue/brokers/redis"
+	rredis "github.com/kalbhor/tasqueue/results/redis"
+
+	"github.com/knadh/koanf"
 	"github.com/knadh/sql-jobber/models"
-	uuid "github.com/satori/go.uuid"
+	"github.com/zerodha/logf"
 )
 
 var (
@@ -20,45 +23,26 @@ var (
 	jobMutex    = sync.RWMutex{}
 )
 
-// createJobSignature creates and returns a machinery tasks.Signature{} from the given job params.
-func createJobSignature(j models.JobReq, taskName string, ttl int, jobber *Jobber) (tasks.Signature, error) {
+// createJobSignature creates and returns a tasqueue job from the given job params.
+func createJob(j models.JobReq, taskName, dbName string, ttl int, jobber *Jobber) (tasqueue.Job, error) {
 	task, ok := jobber.Tasks[taskName]
 	if !ok {
-		return tasks.Signature{}, fmt.Errorf("unrecognized task: %s", taskName)
+		return tasqueue.Job{}, fmt.Errorf("unrecognized task: %s", taskName)
 	}
 
-	// Check if a job with the same ID is already running.
-	if s, err := jobber.Machinery.GetBackend().GetState(j.JobID); err == nil && !s.IsCompleted() {
-		return tasks.Signature{}, fmt.Errorf("job '%s' is already running", j.JobID)
-	}
-
-	// If there's no job_id, we generate one. This is because
-	// the ID Machinery generates is not made available inside the
-	// actual task. So, we generate the ID and pass it as an argument
-	// to the task itself.
-	if j.JobID == "" {
-		j.JobID = fmt.Sprintf("job_%v", uuid.NewV4())
-	}
-
-	// Task arguments.
-	args := append([]tasks.Arg{
-		// Machinery will refelect on these and pass them as arguments
-		// to the callback registered using RegisterTask() when a task
-		// is executed.
-		{Type: "string", Value: j.JobID},
-		{Type: "string", Value: taskName},
-		{Type: "string", Value: j.DB},
-		{Type: "int", Value: ttl},
-	}, sliceToTaskArgs(j.Args)...)
-
-	var eta *time.Time
+	var (
+		eta *time.Time
+		sch string
+	)
 	if j.ETA != "" {
 		e, err := time.Parse("2006-01-02 15:04:05", j.ETA)
 		if err != nil {
-			return tasks.Signature{}, fmt.Errorf("error parsing ETA: %v", err)
+			return tasqueue.Job{}, fmt.Errorf("error parsing ETA: %v", err)
 		}
 
 		eta = &e
+		// Convert eta to cron expression. As of now, it is limited to running jobs in the current year.
+		sch = fmt.Sprintf("%d %d %d %s ?", eta.Minute(), eta.Hour(), eta.Day(), eta.Month())
 	}
 
 	// If there's no queue in the request, use the one attached to the task,
@@ -67,22 +51,26 @@ func createJobSignature(j models.JobReq, taskName string, ttl int, jobber *Jobbe
 		j.Queue = task.Queue
 	}
 
-	return tasks.Signature{
-		Name:       taskName,
-		UUID:       j.JobID,
-		RoutingKey: j.Queue,
-		RetryCount: j.Retries,
-		Args:       args,
-		ETA:        eta,
+	b, _ := json.Marshal(taskMeta{
+		Args: j.Args,
+		DB:   dbName,
+		TTL:  ttl,
+	})
+
+	return tasqueue.Job{
+		Task:    taskName,
+		Payload: b,
+		Opts: tasqueue.JobOpts{
+			UUID:       j.JobID,
+			Schedule:   sch,
+			Queue:      j.Queue,
+			MaxRetries: uint32(j.Retries),
+		},
 	}, nil
 }
 
 // executeTask executes an SQL statement job and inserts the results into the result backend.
-func executeTask(jobID, taskName, dbName string, ttl time.Duration, args []interface{}, task *Task, jobber *Jobber) (int64, error) {
-	// If the job's deleted, stop.
-	if _, err := jobber.Machinery.GetBackend().GetState(jobID); err != nil {
-		return 0, errors.New("the job was canceled")
-	}
+func executeTask(jobID, taskName string, pl taskMeta, task *Task, jobber *Jobber) (int64, error) {
 
 	// Execute the query.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -105,12 +93,12 @@ func executeTask(jobID, taskName, dbName string, ttl time.Duration, args []inter
 	)
 	if task.Stmt != nil {
 		// Prepared query.
-		rows, err = task.Stmt.QueryContext(ctx, args...)
+		rows, err = task.Stmt.QueryContext(ctx, pl.Args...)
 	} else {
 
-		if dbName != "" {
+		if pl.DB != "" {
 			// Specific DB.
-			d, err := task.DBs.Get(dbName)
+			d, err := task.DBs.Get(pl.DB)
 			if err != nil {
 				return 0, fmt.Errorf("task execution failed: %s: %v", task.Name, err)
 			}
@@ -121,17 +109,17 @@ func executeTask(jobID, taskName, dbName string, ttl time.Duration, args []inter
 		}
 	}
 
-	rows, err = db.QueryContext(ctx, task.Raw, args...)
+	rows, err = db.QueryContext(ctx, task.Raw, pl.Args...)
 	if err != nil {
 		if err == context.Canceled {
 			return 0, errors.New("the job was canceled")
 		}
 
-		return 0, fmt.Errorf("task execution failed: %s: %v", task.Name, err)
+		return 0, fmt.Errorf("task execution failed: %v", err)
 	}
 	defer rows.Close()
 
-	return writeResults(jobID, task, ttl, rows, jobber)
+	return writeResults(jobID, task, time.Duration(pl.TTL), rows, jobber)
 }
 
 // writeResults writes results from an SQL query to a result backend.
@@ -199,27 +187,58 @@ func writeResults(jobID string, task *Task, ttl time.Duration, rows *sql.Rows, j
 	return numRows, nil
 }
 
-// connectJobServer creates and returns a Machinery job server
-// while registering the given SQL queries as tasks.
-func connectJobServer(jobber *Jobber, cfg *config.Config, queries Tasks) (*machinery.Server, error) {
-	server, err := machinery.NewServer(cfg)
+type taskMeta struct {
+	Args []interface{} `json:"args"`
+	DB   string        `json:"db"`
+	TTL  int           `json:"ttl"`
+}
+
+func connectJobServer(ko *koanf.Koanf, j *Jobber, queries Tasks) error {
+	rBroker := bredis.New(bredis.Options{
+		PollPeriod:   bredis.DefaultPollPeriod,
+		Addrs:        ko.Strings("tasqueue.broker.address"),
+		Password:     ko.String("tasqueue.broker.password"),
+		DB:           ko.Int("tasqueue.broker.db"),
+		MinIdleConns: ko.Int("tasqueue.broker.max_idle"),
+		DialTimeout:  ko.Duration("tasqueue.broker.dial_timeout"),
+		ReadTimeout:  ko.Duration("tasqueue.broker.read_timeout"),
+		WriteTimeout: ko.Duration("tasqueue.broker.write_timeout"),
+	}, logf.New(logf.Opts{}))
+
+	rResult := rredis.New(rredis.Options{
+		Addrs:        ko.Strings("tasqueue.results.address"),
+		Password:     ko.String("tasqueue.results.password"),
+		DB:           ko.Int("tasqueue.results.db"),
+		MinIdleConns: ko.Int("tasqueue.results.max_idle"),
+		DialTimeout:  ko.Duration("tasqueue.results.dial_timeout"),
+		ReadTimeout:  ko.Duration("tasqueue.results.read_timeout"),
+		WriteTimeout: ko.Duration("tasqueue.results.write_timeout"),
+	}, logf.New(logf.Opts{}))
+
+	var err error
+	j.Tasqueue, err = tasqueue.NewServer(tasqueue.ServerOpts{
+		Broker:  rBroker,
+		Results: rResult,
+	})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	// Register the tasks with the query names.
 	for name, query := range queries {
-		server.RegisterTask(string(name), func(q Task) taskFunc {
-			return func(jobID, taskName, db string, ttl int, args ...interface{}) (int64, error) {
-				// Check if the job's been deleted.
-				if _, err := jobber.Machinery.GetBackend().GetState(jobID); err != nil {
-					return 0, fmt.Errorf("Skipping deleted job: %v", err)
-				}
-
-				return executeTask(jobID, taskName, db, time.Duration(ttl)*time.Second, args, &q, jobber)
+		query := query
+		j.Tasqueue.RegisterTask(string(name), func(b []byte, jctx tasqueue.JobCtx) error {
+			var args taskMeta
+			if err := json.Unmarshal(b, &args); err != nil {
+				return fmt.Errorf("could not unmarshal args : %w", err)
 			}
-		}(query))
+
+			_, err := executeTask(jctx.Meta.UUID, name, args, &query, jobber)
+			return err
+		}, tasqueue.TaskOpts{
+			Concurrency: uint32(ko.Int("worker-concurrency")),
+			Queue:       query.Queue,
+		})
 	}
 
-	return server, nil
+	return nil
 }

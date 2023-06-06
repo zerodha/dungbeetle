@@ -2,20 +2,18 @@ package models
 
 import (
 	"time"
-
-	"github.com/RichardKnop/machinery/v1/tasks"
 )
 
 // JobReq represents a job request.
 type JobReq struct {
-	TaskName string   `json:"task"`
-	JobID    string   `json:"job_id"`
-	Queue    string   `json:"queue"`
-	ETA      string   `json:"eta"`
-	Retries  int      `json:"retries"`
-	TTL      int      `json:"ttl"`
-	Args     []string `json:"args"`
-	DB       string   `json:"db"`
+	TaskName string        `json:"task"`
+	JobID    string        `json:"job_id"`
+	Queue    string        `json:"queue"`
+	ETA      string        `json:"eta"`
+	Retries  int           `json:"retries"`
+	TTL      int           `json:"ttl"`
+	Args     []interface{} `json:"args"`
+	DB       string        `json:"db"`
 
 	ttlDuration time.Duration
 }
@@ -31,10 +29,10 @@ type JobResp struct {
 
 // JobStatusResp represents the response of a single job.
 type JobStatusResp struct {
-	JobID   string              `json:"job_id"`
-	State   string              `json:"state"`
-	Results []*tasks.TaskResult `json:"results"`
-	Error   string              `json:"error"`
+	JobID   string `json:"job_id"`
+	State   string `json:"state"`
+	Results []byte `json:"results"`
+	Error   string `json:"error"`
 }
 
 // GroupReq represents a Jobrequest group.

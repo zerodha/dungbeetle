@@ -1,13 +1,31 @@
 # Redis addresses are denoted as: redis://password@host:port/db_num
 
-[machinery]
-broker_address = "redis://127.0.0.1:6379/1"
+[tasqueue]
+concurrency = 250 
 
-# This is where Machinery stores it's job states.
-# In Machinery's terminology, this is its "result backend"
+[tasqueue.broker]
+address = ["localhost:6379"]
+password = ""
+db = 1
+max_active = 50
+max_idle = 20
+dial_timeout = "1s"
+read_timeout = "1s"
+write_timeout = "1s"
+
+[tasqueue.results]
+# This is where tasqueue stores it's job states.
+# In tasqueue's terminology, this is its "result backend"
 # and is not to be confused with the SQL Jobber's 'result_backend'
 # where SQL Jobber stores results of jobs, bypassing machinery.
-state_address = "redis://127.0.0.1:6379/1"
+address = ["localhost:6391"]
+password = ""
+db = 1
+max_active = 50
+max_idle = 20
+dial_timeout = "1s"
+read_timeout = "1s"
+write_timeout = "1s"
 
 [results]
 # These are the result backends where the results of various SQL query jobs are saved.

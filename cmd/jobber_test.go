@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -13,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RichardKnop/machinery/v1/config"
 	"github.com/go-chi/chi"
 	"github.com/knadh/sql-jobber/backends"
 	"github.com/knadh/sql-jobber/models"
@@ -163,23 +163,18 @@ func setup() {
 	testRouter.Get("/jobs/{jobID}", handleGetJobStatus)
 	testRouter.Get("/jobs/queue/{queue}", handleGetPendingJobs)
 	testRouter.Delete("/jobs/{jobID}", handleDeleteJob)
+	testRouter.Delete("/groups/{groupID}", handleDeleteGroupJob)
 	testRouter.Post("/groups", handlePostJobGroup)
 	testRouter.Get("/groups/{groupID}", handleGetGroupStatus)
 
 	// Setup the job server.
-	var err error
-	jobber.Machinery, err = connectJobServer(jobber, &config.Config{
-		Broker:          "redis://localhost:6379/1",
-		DefaultQueue:    "default-queue",
-		ResultBackend:   "redis://localhost:6379/1",
-		ResultsExpireIn: 3600,
-	}, jobber.Tasks)
+	err := connectJobServer(ko, jobber, jobber.Tasks)
 	if err != nil {
 		sLog.Fatal(err)
 	}
 
-	jobber.Worker = jobber.Machinery.NewWorker("sql-jobber", 10)
-	go jobber.Worker.Launch()
+	ctx := context.Background()
+	go jobber.Tasqueue.Start(ctx)
 }
 
 // testRequest does the request, response serializing
@@ -249,15 +244,14 @@ func TestPostTask(t *testing.T) {
 
 	// Try getting the status without waiting for the job to finish
 	testRequest(t, "GET", "/jobs/my_job", nil, &dest)
-	assert.Contains(t, []string{"PENDING", "RECEIVED", "STARTED"}, dest.Data.(map[string]interface{})["state"])
+	assert.Contains(t, []string{"success", "processing", "queued"}, dest.Data.(map[string]interface{})["state"])
 
 	// Lets wait till the query finishes
 	time.Sleep(time.Duration(2 * time.Second))
 
 	// Try getting the status of the above job
 	testRequest(t, "GET", "/jobs/my_job", nil, &dest)
-	assert.Contains(t, "SUCCESS", dest.Data.(map[string]interface{})["state"])
-
+	assert.Contains(t, []string{"successful"}, dest.Data.(map[string]interface{})["state"])
 	// Examine result table schema
 	rows, err := testResultDB.Query("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'results_my_job';")
 	if err != nil {
@@ -291,7 +285,7 @@ func TestGetJobStatus(t *testing.T) {
 	var dest models.HTTPResp
 
 	testRequest(t, "GET", "/jobs/my_job", nil, &dest)
-	assert.Equal(t, "SUCCESS", dest.Data.(map[string]interface{})["state"])
+	assert.Equal(t, "successful", dest.Data.(map[string]interface{})["state"])
 }
 
 // TestGetPendingJobs test fetching pending jobs in a queue
@@ -300,6 +294,30 @@ func TestGetPendingJobs(t *testing.T) {
 
 	testRequest(t, "GET", "/jobs/queue/default_queue", nil, &dest)
 	assert.Equal(t, 0, len(dest.Data.([]interface{})))
+}
+
+// TestDeleteGroup tests handler for deleting a job
+func TestDeleteGroup(t *testing.T) {
+	var dest models.HTTPResp
+	// Post a task group
+	req := []byte(`{
+		"group_id": "my_job_group_1",
+		"jobs": [{
+			"args":  ["USERID"],
+			"task": "get_profit_summary",
+			"ttl": 10
+		}]
+	}`)
+	testRequest(t, "POST", "/groups", bytes.NewReader(req), &dest)
+
+	tk := dest.Data.(map[string]interface{})
+	groupID := tk["group_id"].(string)
+
+	// Lets wait till the query finishes
+	time.Sleep(time.Duration(2 * time.Second))
+	// Delete task
+	testRequest(t, "DELETE", "/groups/"+groupID+"?purge=true", nil, &dest)
+	assert.Equal(t, true, dest.Data.(bool))
 }
 
 // TestDeleteJob tests handler for deleting a job
@@ -338,14 +356,14 @@ func TestPostJobGroup(t *testing.T) {
 
 	// fetch for job group status
 	testRequest(t, "GET", "/groups/my_job_group_1", nil, &dest)
-	assert.Contains(t, []string{"PENDING", "RECEIVED", "STARTED"}, dest.Data.(map[string]interface{})["state"].(string))
+	assert.Contains(t, []string{"processing", "successful"}, dest.Data.(map[string]interface{})["state"].(string))
 
 	// Lets wait till the query finishes
 	time.Sleep(time.Duration(2 * time.Second))
 
 	// fetch for job group status
 	testRequest(t, "GET", "/groups/my_job_group_1", nil, &dest)
-	assert.Equal(t, "SUCCESS", dest.Data.(map[string]interface{})["state"].(string))
+	assert.Equal(t, "successful", dest.Data.(map[string]interface{})["state"].(string))
 }
 
 // TestGetJobGroup tests fetch a job group
@@ -353,5 +371,5 @@ func TestGetJobGroup(t *testing.T) {
 	var dest models.HTTPResp
 
 	testRequest(t, "GET", "/groups/my_job_group_1", nil, &dest)
-	assert.Equal(t, "SUCCESS", dest.Data.(map[string]interface{})["state"].(string))
+	assert.Equal(t, "successful", dest.Data.(map[string]interface{})["state"].(string))
 }

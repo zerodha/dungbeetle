@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -8,11 +9,9 @@ import (
 	"strings"
 	"time"
 
-	machinery "github.com/RichardKnop/machinery/v1"
-	"github.com/RichardKnop/machinery/v1/config"
-	mlog "github.com/RichardKnop/machinery/v1/log"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
+	"github.com/kalbhor/tasqueue"
 	"github.com/knadh/koanf"
 	"github.com/knadh/koanf/parsers/toml"
 	"github.com/knadh/koanf/providers/env"
@@ -37,14 +36,11 @@ type constants struct {
 	ResultsDB string
 }
 
-type taskFunc func(jobID string, taskName, db string, ttl int, args ...interface{}) (int64, error)
-
 // Jobber represents the tooling required to run a job server.
 type Jobber struct {
-	Tasks     Tasks
-	Machinery *machinery.Server
-	Worker    *machinery.Worker
-	DBs       DBs
+	Tasks    Tasks
+	Tasqueue *tasqueue.Server
+	DBs      DBs
 
 	// Named map of one or more result backend DBs.
 	ResultBackends ResultBackends
@@ -115,9 +111,6 @@ func init() {
 	}), nil); err != nil {
 		sLog.Fatalf("error loading config from env: %v", err)
 	}
-
-	// Override Machinery's default logger.
-	mlog.Set(log.New(os.Stdout, "MACHIN: ", log.Ldate|log.Ltime|log.Lshortfile))
 }
 
 func main() {
@@ -218,13 +211,7 @@ func main() {
 	r.Get("/groups/{groupID}", handleGetGroupStatus)
 
 	// Setup the job server.
-	var err error
-	jobber.Machinery, err = connectJobServer(jobber, &config.Config{
-		Broker:          ko.MustString("machinery.broker_address"),
-		DefaultQueue:    ko.MustString("queue"),
-		ResultBackend:   ko.MustString("machinery.state_address"),
-		ResultsExpireIn: ko.MustInt("result_backend.results_ttl"),
-	}, jobber.Tasks)
+	err := connectJobServer(ko, jobber, jobber.Tasks)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -238,7 +225,6 @@ func main() {
 		}()
 	}
 
-	jobber.Worker = jobber.Machinery.NewWorker(ko.MustString("worker-name"),
-		ko.Int("worker-concurrency"))
-	jobber.Worker.Launch()
+	ctx := context.Background()
+	jobber.Tasqueue.Start(ctx)
 }

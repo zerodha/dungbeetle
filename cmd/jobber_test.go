@@ -244,7 +244,7 @@ func TestPostTask(t *testing.T) {
 
 	// Try getting the status without waiting for the job to finish
 	testRequest(t, "GET", "/jobs/my_job", nil, &dest)
-	assert.Contains(t, []string{"success", "processing", "queued"}, dest.Data.(map[string]interface{})["state"])
+	assert.Contains(t, []string{"successful", "processing", "queued"}, dest.Data.(map[string]interface{})["state"])
 
 	// Lets wait till the query finishes
 	time.Sleep(time.Duration(2 * time.Second))

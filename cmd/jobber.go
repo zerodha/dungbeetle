@@ -42,7 +42,7 @@ func createJob(j models.JobReq, taskName, dbName string, ttl int, jobber *Jobber
 
 		eta = &e
 		// Convert eta to cron expression. As of now, it is limited to running jobs in the current year.
-		sch = fmt.Sprintf("%d %d %d %s ?", eta.Minute(), eta.Hour(), eta.Day(), eta.Month())
+		sch = fmt.Sprintf("%d %d %d %d ?", eta.Minute(), eta.Hour(), eta.Day(), int(eta.Month()))
 	}
 
 	// If there's no queue in the request, use the one attached to the task,

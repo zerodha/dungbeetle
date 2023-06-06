@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/go-chi/chi"
 	"github.com/gomodule/redigo/redis"
@@ -61,7 +63,6 @@ func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGetGroupStatus returns the status of a given groupID.
-// TODO: error handling
 func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 	groupID := chi.URLParam(r, "groupID")
 
@@ -70,8 +71,20 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 	var jobs []models.JobStatusResp
 
 	for uuid, status := range groupMsg.JobStatus {
-		res, _ := jobber.Tasqueue.GetResult(r.Context(), uuid)
-		jMsg, _ := jobber.Tasqueue.GetJob(r.Context(), uuid)
+		res, err := jobber.Tasqueue.GetResult(r.Context(), uuid)
+		if err != nil && !errors.Is(redis.ErrNil, err) {
+			sLog.Printf("error fetching job status: %v", err)
+			sendErrorResponse(w, "error fetching job status", http.StatusInternalServerError)
+			return
+		}
+
+		jMsg, err := jobber.Tasqueue.GetJob(r.Context(), uuid)
+		if err != nil {
+			sLog.Printf("error fetching job: %v", err)
+			sendErrorResponse(w, "error fetching job", http.StatusInternalServerError)
+			return
+		}
+
 		jobs = append(jobs, models.JobStatusResp{
 			JobID:   uuid,
 			State:   status,
@@ -142,13 +155,54 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var eta time.Time
+	if t.Opts.Schedule != "" {
+		eta, err = cronToEta(t.Opts.Schedule)
+		if err != nil {
+			sLog.Printf("error posting job: %v", err)
+			sendErrorResponse(w, "error posting job", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	sendResponse(w, models.JobResp{
 		JobID:    jobID,
 		TaskName: t.Task,
 		Queue:    t.Opts.Queue,
 		Retries:  int(t.Opts.MaxRetries),
-		//ETA:      res.Signature.ETA,
+		ETA:      &eta,
 	})
+}
+
+// cronToTime accepts a cron schedule string and converts it into a timestamp.
+func cronToEta(sch string) (time.Time, error) {
+	expr := strings.Fields(sch)
+	if len(expr) < 4 {
+		return time.Time{}, errors.New("invalid cron expression")
+	}
+
+	min, err := strconv.Atoi(expr[0])
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	hr, err := strconv.Atoi(expr[1])
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	day, err := strconv.Atoi(expr[2])
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	mn, err := strconv.Atoi(expr[3])
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return time.Date(time.Now().Year(), time.Month(mn), day, hr,
+		min, 0, 0, time.Now().Location()), nil
 }
 
 // handlePostJobGroup creates multiple jobs under a group.

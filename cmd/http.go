@@ -8,17 +8,12 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
-	"strings"
-	"time"
 
 	"github.com/go-chi/chi"
 	"github.com/gomodule/redigo/redis"
 	"github.com/kalbhor/tasqueue/v2"
 	"github.com/knadh/sql-jobber/models"
 )
-
-// groupConcurrency represents the concurrency factor for job groups.
-const groupConcurrency = 5
 
 // regexValidateName represents the character classes allowed in a job ID.
 var regexValidateName, _ = regexp.Compile("(?i)^[a-z0-9-_:]+$")
@@ -54,9 +49,17 @@ func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 		sendErrorResponse(w, "error fetching job status", http.StatusInternalServerError)
 		return
 	}
+
+	state, err := getState(out.Status)
+	if err != nil {
+		sLog.Printf("error fetching job status: %v", err)
+		sendErrorResponse(w, "error fetching job status", http.StatusInternalServerError)
+		return
+	}
+
 	sendResponse(w, models.JobStatusResp{
 		JobID:   out.ID,
-		State:   out.Status,
+		State:   state,
 		Results: b,
 		Error:   out.PrevErr,
 	})
@@ -85,18 +88,32 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		state, err := getState(status)
+		if err != nil {
+			sLog.Printf("error fetching job status: %v", err)
+			sendErrorResponse(w, "error fetching group status", http.StatusInternalServerError)
+			return
+		}
+
 		jobs = append(jobs, models.JobStatusResp{
 			JobID:   uuid,
-			State:   status,
+			State:   state,
 			Results: res,
 			Error:   jMsg.PrevErr,
 		})
 
 	}
 
+	state, err := getState(groupMsg.Status)
+	if err != nil {
+		sLog.Printf("error fetching group status: %v", err)
+		sendErrorResponse(w, "error fetching group status", http.StatusInternalServerError)
+		return
+	}
+
 	out := models.GroupStatusResp{
 		GroupID: groupID,
-		State:   groupMsg.Status,
+		State:   state,
 		Jobs:    jobs,
 	}
 
@@ -161,37 +178,6 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 		Retries:  int(t.Opts.MaxRetries),
 		ETA:      &t.Opts.ETA,
 	})
-}
-
-// cronToTime accepts a cron schedule string and converts it into a timestamp.
-func cronToEta(sch string) (time.Time, error) {
-	expr := strings.Fields(sch)
-	if len(expr) < 4 {
-		return time.Time{}, errors.New("invalid cron expression")
-	}
-
-	min, err := strconv.Atoi(expr[0])
-	if err != nil {
-		return time.Time{}, err
-	}
-
-	hr, err := strconv.Atoi(expr[1])
-	if err != nil {
-		return time.Time{}, err
-	}
-
-	day, err := strconv.Atoi(expr[2])
-	if err != nil {
-		return time.Time{}, err
-	}
-
-	mn, err := strconv.Atoi(expr[3])
-	if err != nil {
-		return time.Time{}, err
-	}
-
-	return time.Date(time.Now().Year(), time.Month(mn), day, hr,
-		min, 0, 0, time.Now().Location()), nil
 }
 
 // handlePostJobGroup creates multiple jobs under a group.

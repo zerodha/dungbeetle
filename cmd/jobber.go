@@ -238,3 +238,22 @@ func connectJobServer(ko *koanf.Koanf, j *Jobber, queries Tasks) error {
 
 	return nil
 }
+
+// getState helps keep compatibility between different status conventions
+// of the job servers (tasqueue/machinery).
+func getState(st string) (string, error) {
+	switch st {
+	case tasqueue.StatusStarted:
+		return "PENDING", nil
+	case tasqueue.StatusProcessing:
+		return "STARTED", nil
+	case tasqueue.StatusFailed:
+		return "FAILURE", nil
+	case tasqueue.StatusDone:
+		return "SUCCESS", nil
+	case tasqueue.StatusRetrying:
+		return "RETRY", nil
+	}
+
+	return "", fmt.Errorf("invalid status not found in mapping")
+}

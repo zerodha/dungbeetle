@@ -244,14 +244,14 @@ func TestPostTask(t *testing.T) {
 
 	// Try getting the status without waiting for the job to finish
 	testRequest(t, "GET", "/jobs/my_job", nil, &dest)
-	assert.Contains(t, []string{"successful", "processing", "queued"}, dest.Data.(map[string]interface{})["state"])
+	assert.Contains(t, []string{"SUCCESS", "STARTED", "PENDING"}, dest.Data.(map[string]interface{})["state"])
 
 	// Lets wait till the query finishes
 	time.Sleep(time.Duration(2 * time.Second))
 
 	// Try getting the status of the above job
 	testRequest(t, "GET", "/jobs/my_job", nil, &dest)
-	assert.Contains(t, []string{"successful"}, dest.Data.(map[string]interface{})["state"])
+	assert.Contains(t, []string{"SUCCESS"}, dest.Data.(map[string]interface{})["state"])
 	// Examine result table schema
 	rows, err := testResultDB.Query("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'results_my_job';")
 	if err != nil {
@@ -285,7 +285,7 @@ func TestGetJobStatus(t *testing.T) {
 	var dest models.HTTPResp
 
 	testRequest(t, "GET", "/jobs/my_job", nil, &dest)
-	assert.Equal(t, "successful", dest.Data.(map[string]interface{})["state"])
+	assert.Equal(t, "SUCCESS", dest.Data.(map[string]interface{})["state"])
 }
 
 // TestGetPendingJobs test fetching pending jobs in a queue
@@ -356,14 +356,14 @@ func TestPostJobGroup(t *testing.T) {
 
 	// fetch for job group status
 	testRequest(t, "GET", "/groups/my_job_group_1", nil, &dest)
-	assert.Contains(t, []string{"processing", "successful"}, dest.Data.(map[string]interface{})["state"].(string))
+	assert.Contains(t, []string{"STARTED", "SUCCESS"}, dest.Data.(map[string]interface{})["state"].(string))
 
 	// Lets wait till the query finishes
 	time.Sleep(time.Duration(2 * time.Second))
 
 	// fetch for job group status
 	testRequest(t, "GET", "/groups/my_job_group_1", nil, &dest)
-	assert.Equal(t, "successful", dest.Data.(map[string]interface{})["state"].(string))
+	assert.Equal(t, "SUCCESS", dest.Data.(map[string]interface{})["state"].(string))
 }
 
 // TestGetJobGroup tests fetch a job group
@@ -371,5 +371,5 @@ func TestGetJobGroup(t *testing.T) {
 	var dest models.HTTPResp
 
 	testRequest(t, "GET", "/groups/my_job_group_1", nil, &dest)
-	assert.Equal(t, "successful", dest.Data.(map[string]interface{})["state"].(string))
+	assert.Equal(t, "SUCCESS", dest.Data.(map[string]interface{})["state"].(string))
 }

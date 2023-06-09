@@ -4,11 +4,11 @@ go 1.12
 
 require (
 	github.com/ClickHouse/clickhouse-go v1.4.5
-	github.com/RichardKnop/machinery v1.10.5
+	github.com/RichardKnop/machinery v1.10.6
 	github.com/go-chi/chi v4.1.2+incompatible
 	github.com/go-sql-driver/mysql v1.6.0
 	github.com/gomodule/redigo v2.0.0+incompatible
-	github.com/kalbhor/tasqueue v1.4.0
+	github.com/kalbhor/tasqueue/v2 v2.0.0
 	github.com/knadh/goyesql v2.0.0+incompatible
 	github.com/knadh/koanf v0.16.0
 	github.com/lib/pq v1.10.1

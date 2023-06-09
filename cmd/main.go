@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
-	"github.com/kalbhor/tasqueue"
+	"github.com/kalbhor/tasqueue/v2"
 	"github.com/knadh/koanf"
 	"github.com/knadh/koanf/parsers/toml"
 	"github.com/knadh/koanf/providers/env"

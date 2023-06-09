@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kalbhor/tasqueue"
-	bredis "github.com/kalbhor/tasqueue/brokers/redis"
-	rredis "github.com/kalbhor/tasqueue/results/redis"
+	"github.com/kalbhor/tasqueue/v2"
+	bredis "github.com/kalbhor/tasqueue/v2/brokers/redis"
+	rredis "github.com/kalbhor/tasqueue/v2/results/redis"
 
 	"github.com/knadh/koanf"
 	"github.com/knadh/sql-jobber/models"
@@ -31,18 +31,14 @@ func createJob(j models.JobReq, taskName, dbName string, ttl int, jobber *Jobber
 	}
 
 	var (
-		eta *time.Time
-		sch string
+		eta time.Time
+		err error
 	)
 	if j.ETA != "" {
-		e, err := time.Parse("2006-01-02 15:04:05", j.ETA)
+		eta, err = time.Parse("2006-01-02 15:04:05", j.ETA)
 		if err != nil {
 			return tasqueue.Job{}, fmt.Errorf("error parsing ETA: %v", err)
 		}
-
-		eta = &e
-		// Convert eta to cron expression. As of now, it is limited to running jobs in the current year.
-		sch = fmt.Sprintf("%d %d %d %d ?", eta.Minute(), eta.Hour(), eta.Day(), int(eta.Month()))
 	}
 
 	// If there's no queue in the request, use the one attached to the task,
@@ -61,10 +57,10 @@ func createJob(j models.JobReq, taskName, dbName string, ttl int, jobber *Jobber
 		Task:    taskName,
 		Payload: b,
 		Opts: tasqueue.JobOpts{
-			UUID:       j.JobID,
-			Schedule:   sch,
+			ID:         j.JobID,
 			Queue:      j.Queue,
 			MaxRetries: uint32(j.Retries),
+			ETA:        eta,
 		},
 	}, nil
 }
@@ -232,7 +228,7 @@ func connectJobServer(ko *koanf.Koanf, j *Jobber, queries Tasks) error {
 				return fmt.Errorf("could not unmarshal args : %w", err)
 			}
 
-			_, err := executeTask(jctx.Meta.UUID, name, args, &query, jobber)
+			_, err := executeTask(jctx.Meta.ID, name, args, &query, jobber)
 			return err
 		}, tasqueue.TaskOpts{
 			Concurrency: uint32(ko.Int("worker-concurrency")),

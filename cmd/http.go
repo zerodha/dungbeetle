@@ -13,7 +13,7 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/gomodule/redigo/redis"
-	"github.com/kalbhor/tasqueue"
+	"github.com/kalbhor/tasqueue/v2"
 	"github.com/knadh/sql-jobber/models"
 )
 
@@ -55,7 +55,7 @@ func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sendResponse(w, models.JobStatusResp{
-		JobID:   out.UUID,
+		JobID:   out.ID,
 		State:   out.Status,
 		Results: b,
 		Error:   out.PrevErr,
@@ -116,7 +116,6 @@ func handleGetPendingJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePostJob creates a new job against a given task name.
-// TODO: add eta
 func handlePostJob(w http.ResponseWriter, r *http.Request) {
 	var (
 		taskName = chi.URLParam(r, "taskName")
@@ -155,22 +154,12 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var eta time.Time
-	if t.Opts.Schedule != "" {
-		eta, err = cronToEta(t.Opts.Schedule)
-		if err != nil {
-			sLog.Printf("error posting job: %v", err)
-			sendErrorResponse(w, "error posting job", http.StatusInternalServerError)
-			return
-		}
-	}
-
 	sendResponse(w, models.JobResp{
 		JobID:    jobID,
 		TaskName: t.Task,
 		Queue:    t.Opts.Queue,
 		Retries:  int(t.Opts.MaxRetries),
-		ETA:      &eta,
+		ETA:      &t.Opts.ETA,
 	})
 }
 
@@ -230,7 +219,7 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 		jobs = append(jobs, t)
 	}
 
-	taskGroup, err := tasqueue.NewGroup(jobs, tasqueue.GroupOpts{UUID: group.GroupID})
+	taskGroup, err := tasqueue.NewGroup(jobs, tasqueue.GroupOpts{ID: group.GroupID})
 	if err != nil {
 		sLog.Printf("error creating job group: %v", err)
 		sendErrorResponse(w, "error posting job group", http.StatusInternalServerError)
@@ -257,11 +246,11 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 		}
 
 		jobResp = append(jobResp, models.JobResp{
-			JobID:    jmsg.UUID,
+			JobID:    jmsg.ID,
 			TaskName: jmsg.Job.Task,
 			Queue:    jmsg.Queue,
 			Retries:  int(jmsg.MaxRetry),
-			//ETA:      r.Signature.ETA,
+			ETA:      &jmsg.Job.Opts.ETA,
 		})
 	}
 

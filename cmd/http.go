@@ -69,10 +69,17 @@ func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 	groupID := chi.URLParam(r, "groupID")
 
-	groupMsg, _ := jobber.Tasqueue.GetGroup(r.Context(), groupID)
+	groupMsg, err := jobber.Tasqueue.GetGroup(r.Context(), groupID)
+	if err == redis.ErrNil {
+		sendErrorResponse(w, "group not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		sLog.Printf("error fetching group status: %v", err)
+		sendErrorResponse(w, "error fetching group status", http.StatusInternalServerError)
+		return
+	}
 
 	var jobs []models.JobStatusResp
-
 	for uuid, status := range groupMsg.JobStatus {
 		res, err := jobber.Tasqueue.GetResult(r.Context(), uuid)
 		if err != nil && !errors.Is(redis.ErrNil, err) {

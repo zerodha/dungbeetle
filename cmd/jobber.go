@@ -192,23 +192,23 @@ type taskMeta struct {
 func connectJobServer(ko *koanf.Koanf, j *Jobber, queries Tasks) error {
 	rBroker := bredis.New(bredis.Options{
 		PollPeriod:   bredis.DefaultPollPeriod,
-		Addrs:        ko.Strings("tasqueue.broker.address"),
-		Password:     ko.String("tasqueue.broker.password"),
-		DB:           ko.Int("tasqueue.broker.db"),
-		MinIdleConns: ko.Int("tasqueue.broker.max_idle"),
-		DialTimeout:  ko.Duration("tasqueue.broker.dial_timeout"),
-		ReadTimeout:  ko.Duration("tasqueue.broker.read_timeout"),
-		WriteTimeout: ko.Duration("tasqueue.broker.write_timeout"),
+		Addrs:        ko.MustStrings("tasqueue.broker.address"),
+		Password:     ko.MustString("tasqueue.broker.password"),
+		DB:           ko.MustInt("tasqueue.broker.db"),
+		MinIdleConns: ko.MustInt("tasqueue.broker.max_idle"),
+		DialTimeout:  ko.MustDuration("tasqueue.broker.dial_timeout"),
+		ReadTimeout:  ko.MustDuration("tasqueue.broker.read_timeout"),
+		WriteTimeout: ko.MustDuration("tasqueue.broker.write_timeout"),
 	}, logf.New(logf.Opts{}))
 
 	rResult := rredis.New(rredis.Options{
-		Addrs:        ko.Strings("tasqueue.results.address"),
-		Password:     ko.String("tasqueue.results.password"),
-		DB:           ko.Int("tasqueue.results.db"),
-		MinIdleConns: ko.Int("tasqueue.results.max_idle"),
-		DialTimeout:  ko.Duration("tasqueue.results.dial_timeout"),
-		ReadTimeout:  ko.Duration("tasqueue.results.read_timeout"),
-		WriteTimeout: ko.Duration("tasqueue.results.write_timeout"),
+		Addrs:        ko.MustStrings("tasqueue.results.address"),
+		Password:     ko.MustString("tasqueue.results.password"),
+		DB:           ko.MustInt("tasqueue.results.db"),
+		MinIdleConns: ko.MustInt("tasqueue.results.max_idle"),
+		DialTimeout:  ko.MustDuration("tasqueue.results.dial_timeout"),
+		ReadTimeout:  ko.MustDuration("tasqueue.results.read_timeout"),
+		WriteTimeout: ko.MustDuration("tasqueue.results.write_timeout"),
 	}, logf.New(logf.Opts{}))
 
 	var err error
@@ -231,7 +231,7 @@ func connectJobServer(ko *koanf.Koanf, j *Jobber, queries Tasks) error {
 			_, err := executeTask(jctx.Meta.ID, name, args, &query, jobber)
 			return err
 		}, tasqueue.TaskOpts{
-			Concurrency: uint32(ko.Int("worker-concurrency")),
+			Concurrency: uint32(ko.MustInt("worker-concurrency")),
 			Queue:       query.Queue,
 		})
 	}

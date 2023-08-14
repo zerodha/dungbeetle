@@ -7,8 +7,8 @@ require (
 	github.com/RichardKnop/machinery v1.10.6
 	github.com/go-chi/chi v4.1.2+incompatible
 	github.com/go-sql-driver/mysql v1.6.0
-	github.com/gomodule/redigo v2.0.0+incompatible
-	github.com/kalbhor/tasqueue/v2 v2.0.0
+	github.com/google/go-cmp v0.5.9 // indirect
+	github.com/kalbhor/tasqueue/v2 v2.0.1
 	github.com/knadh/goyesql v2.0.0+incompatible
 	github.com/knadh/koanf v0.16.0
 	github.com/lib/pq v1.10.1
@@ -19,5 +19,5 @@ require (
 	github.com/stretchr/testify v1.8.3
 	github.com/zerodha/logf v0.5.5
 	go.opentelemetry.io/otel/sdk v1.16.0 // indirect
-	golang.org/x/net v0.7.0 // indirect
+	golang.org/x/sys v0.11.0 // indirect
 )

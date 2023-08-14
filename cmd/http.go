@@ -10,7 +10,6 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi"
-	"github.com/gomodule/redigo/redis"
 	"github.com/kalbhor/tasqueue/v2"
 	"github.com/knadh/sql-jobber/models"
 )
@@ -34,7 +33,7 @@ func handleGetTasksList(w http.ResponseWriter, r *http.Request) {
 func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
 	out, err := jobber.Tasqueue.GetJob(r.Context(), jobID)
-	if err == redis.ErrNil {
+	if errors.Is(err, tasqueue.ErrNotFound) {
 		sendErrorResponse(w, "job not found", http.StatusNotFound)
 		return
 	} else if err != nil {
@@ -44,7 +43,7 @@ func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	b, err := jobber.Tasqueue.GetResult(r.Context(), jobID)
-	if err != nil && !errors.Is(redis.ErrNil, err) {
+	if err != nil && !errors.Is(err, tasqueue.ErrNotFound) {
 		sLog.Printf("error fetching job status: %v", err)
 		sendErrorResponse(w, "error fetching job status", http.StatusInternalServerError)
 		return
@@ -70,7 +69,7 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 	groupID := chi.URLParam(r, "groupID")
 
 	groupMsg, err := jobber.Tasqueue.GetGroup(r.Context(), groupID)
-	if err == redis.ErrNil {
+	if errors.Is(err, tasqueue.ErrNotFound) {
 		sendErrorResponse(w, "group not found", http.StatusNotFound)
 		return
 	} else if err != nil {
@@ -82,7 +81,7 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 	var jobs []models.JobStatusResp
 	for uuid, status := range groupMsg.JobStatus {
 		res, err := jobber.Tasqueue.GetResult(r.Context(), uuid)
-		if err != nil && !errors.Is(redis.ErrNil, err) {
+		if err != nil && !errors.Is(err, tasqueue.ErrNotFound) {
 			sLog.Printf("error fetching job status: %v", err)
 			sendErrorResponse(w, "error fetching job status", http.StatusInternalServerError)
 			return

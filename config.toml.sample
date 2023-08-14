@@ -1,7 +1,7 @@
 # Redis addresses are denoted as: redis://password@host:port/db_num
 
 [tasqueue]
-concurrency = 250 
+concurrency = 20
 
 [tasqueue.broker]
 address = ["localhost:6379"]

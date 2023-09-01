@@ -27,16 +27,6 @@ import (
 	_ "github.com/lib/pq"
 )
 
-const (
-	dbMySQL      = "mysql"
-	dbPostgres   = "postgres"
-	dbClickHouse = "clickhouse"
-)
-
-type constants struct {
-	ResultsDB string
-}
-
 type taskFunc func(jobID string, taskName, db string, ttl int, args ...interface{}) (int64, error)
 
 // Server represents the tooling required to run a job server.
@@ -64,9 +54,10 @@ type DBConfig struct {
 
 var (
 	buildString = "unknown"
-	sLog        = log.New(os.Stdout, "BEETLE: ", log.Ldate|log.Ltime|log.Lshortfile)
-	ko          = koanf.New(".")
-	server      = &Server{
+
+	sLog   = log.New(os.Stdout, "BEETLE: ", log.Ldate|log.Ltime|log.Lshortfile)
+	ko     = koanf.New(".")
+	server = &Server{
 		Tasks:          make(Tasks),
 		DBs:            make(DBs),
 		ResultBackends: make(ResultBackends),

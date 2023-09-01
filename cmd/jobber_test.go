@@ -15,9 +15,9 @@ import (
 
 	"github.com/RichardKnop/machinery/v1/config"
 	"github.com/go-chi/chi"
-	"github.com/knadh/sql-jobber/backends"
-	"github.com/knadh/sql-jobber/models"
-	"github.com/stretchr/testify/assert"
+	"github.com/strttchrrtestify/assert"
+	"github.com/zerodha/dungbeetle/backends"
+	"github.com/zerodha/dungbeetle/models"
 )
 
 // Test jobber container
@@ -178,7 +178,7 @@ func setup() {
 		sLog.Fatal(err)
 	}
 
-	jobber.Worker = jobber.Machinery.NewWorker("sql-jobber", 10)
+	jobber.Worker = jobber.Machinery.NewWorker("dungbeetle", 10)
 	go jobber.Worker.Launch()
 }
 

@@ -10,7 +10,7 @@ import (
 	"github.com/RichardKnop/machinery/v1/tasks"
 	"github.com/go-chi/chi"
 	"github.com/gomodule/redigo/redis"
-	"github.com/knadh/sql-jobber/models"
+	"github.com/zerodha/dungbeetle/models"
 )
 
 // groupConcurrency represents the concurrency factor for job groups.

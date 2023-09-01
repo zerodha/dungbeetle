@@ -12,7 +12,7 @@ import (
 	"strconv"
 
 	"github.com/RichardKnop/machinery/v1/tasks"
-	"github.com/knadh/sql-jobber/models"
+	"github.com/zerodha/dungbeetle/models"
 )
 
 const (
@@ -121,7 +121,7 @@ func (c *Client) GetGroupStatus(groupID string) (models.GroupStatusResp, error) 
 }
 
 // doHTTPReq makes an HTTP request with the given params and on success, unmarshals
-// the JSON response from the sql-jobber upstream (the .data field in the response JSON)
+// the JSON response from the DungBeetle upstream (the .data field in the response JSON)
 // into the container obj.
 // reqBody can be an arbitrary struct or map for POST requests that'll be
 // marshalled as JSON and posted. For GET queries, it should be query params

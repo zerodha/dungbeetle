@@ -1,5 +1,5 @@
 // Package backends provides interfaces to write backends for
-// SQL Jobber that take and store results from executed SQL jobs.
+// DungBeetle that take and store results from executed SQL jobs.
 package backends
 
 import (

@@ -18,8 +18,8 @@ import (
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/providers/posflag"
-	"github.com/knadh/sql-jobber/backends"
 	flag "github.com/spf13/pflag"
+	"github.com/zerodha/dungbeetle/backends"
 
 	// Clickhouse, MySQL and Postgres drivers.
 	_ "github.com/ClickHouse/clickhouse-go"
@@ -64,7 +64,7 @@ type DBConfig struct {
 
 var (
 	buildString = "unknown"
-	sLog        = log.New(os.Stdout, "JOBBER: ", log.Ldate|log.Ltime|log.Lshortfile)
+	sLog        = log.New(os.Stdout, "BEETLE: ", log.Ldate|log.Ltime|log.Lshortfile)
 	ko          = koanf.New(".")
 	jobber      = &Jobber{
 		Tasks:          make(Tasks),
@@ -78,7 +78,7 @@ func init() {
 	// Command line flags.
 	f := flag.NewFlagSet("config", flag.ContinueOnError)
 	f.Usage = func() {
-		sLog.Println("SQL Jobber")
+		sLog.Println("DungBeetle")
 		sLog.Println(f.FlagUsages())
 		os.Exit(0)
 	}
@@ -87,7 +87,7 @@ func init() {
 	f.String("server", "127.0.0.1:6060", "Web server address")
 	f.StringSlice("sql-directory", []string{"./sql"}, "Path to directory with .sql scripts. Can be specified multiple times")
 	f.String("queue", "default_queue", "Name of the job queue to accept jobs from")
-	f.String("worker-name", "sqljobber", "Name of this worker instance")
+	f.String("worker-name", "default", "Name of this worker instance")
 	f.Int("worker-concurrency", 10, "Number of concurrent worker threads to run")
 	f.Bool("worker-only", false, "Don't start the HTTP server and run in worker-only mode?")
 	f.Bool("version", false, "Current version and build")

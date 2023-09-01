@@ -1,17 +1,17 @@
 FROM golang:1.12-alpine AS builder
 RUN apk update && apk add make git
-WORKDIR /sql-jobber/
+WORKDIR /dungbeetle/
 COPY ./ ./
 ENV CGO_ENABLED=0 GOOS=linux
 RUN make build
 
 FROM alpine:latest AS deploy
 RUN apk --no-cache add ca-certificates
-COPY --from=builder /sql-jobber/sql-jobber ./
-COPY --from=builder /sql-jobber/sql ./
+COPY --from=builder /dungbeetle/dungbeetle ./
+COPY --from=builder /dungbeetle/sql ./
 RUN mkdir -p /opt/config
-COPY --from=builder /sql-jobber/config.toml.sample /opt/config/sql-jobber.toml
+COPY --from=builder /dungbeetle/config.toml.sample /opt/config/dungbeetle.toml
 
 VOLUME ["/opt/config/"]
 
-CMD ["./sql-jobber", "--config", "/opt/config/sql-jobber.toml"]
+CMD ["./dungbeetle", "--config", "/opt/config/dungbeetle.toml"]

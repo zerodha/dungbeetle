@@ -4,7 +4,7 @@ VERSION := $(shell git describe --abbrev=1)
 
 BUILDSTR := ${VERSION} (build "\\\#"${LAST_COMMIT} $(shell date '+%Y-%m-%d %H:%M:%S'))
 
-BIN := sql-jobber
+BIN := dungbeetle
 
 .PHONY: build
 build:

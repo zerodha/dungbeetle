@@ -24,17 +24,17 @@ var regexValidateName, _ = regexp.Compile("(?i)^[a-z0-9-_:]+$")
 func handleGetTasksList(w http.ResponseWriter, r *http.Request) {
 	// Just the names.
 	if r.URL.Query().Get("sql") == "" {
-		sendResponse(w, jobber.Machinery.GetRegisteredTaskNames())
+		sendResponse(w, server.Machinery.GetRegisteredTaskNames())
 		return
 	}
 
-	sendResponse(w, jobber.Tasks)
+	sendResponse(w, server.Tasks)
 }
 
 // handleGetJobStatus returns the status of a given jobID.
 func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
-	out, err := jobber.Machinery.GetBackend().GetState(jobID)
+	out, err := server.Machinery.GetBackend().GetState(jobID)
 	if err == redis.ErrNil {
 		sendErrorResponse(w, "job not found", http.StatusNotFound)
 		return
@@ -55,12 +55,12 @@ func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 // handleGetGroupStatus returns the status of a given groupID.
 func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 	groupID := chi.URLParam(r, "groupID")
-	if _, err := jobber.Machinery.GetBackend().GetState(groupID); err == redis.ErrNil {
+	if _, err := server.Machinery.GetBackend().GetState(groupID); err == redis.ErrNil {
 		sendErrorResponse(w, "group not found", http.StatusNotFound)
 		return
 	}
 
-	res, err := jobber.Machinery.GetBackend().GroupTaskStates(groupID, 0)
+	res, err := server.Machinery.GetBackend().GroupTaskStates(groupID, 0)
 	if err != nil {
 		sLog.Printf("error fetching group status: %v", err)
 		sendErrorResponse(w, "error fetching group status", http.StatusInternalServerError)
@@ -107,7 +107,7 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 
 // handleGetPendingJobs returns pending jobs in a given queue.
 func handleGetPendingJobs(w http.ResponseWriter, r *http.Request) {
-	out, err := jobber.Machinery.GetBroker().GetPendingTasks(chi.URLParam(r, "queue"))
+	out, err := server.Machinery.GetBroker().GetPendingTasks(chi.URLParam(r, "queue"))
 	if err != nil {
 		sLog.Printf("error fetching pending tasks: %v", err)
 		sendErrorResponse(w, "error fetching pending tasks", http.StatusInternalServerError)
@@ -142,14 +142,14 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create the job signature.
-	sig, err := createJobSignature(job, taskName, job.TTL, jobber)
+	sig, err := createJobSignature(job, taskName, job.TTL, server)
 	if err != nil {
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Create the job.
-	res, err := jobber.Machinery.SendTask(&sig)
+	res, err := server.Machinery.SendTask(&sig)
 	if err != nil {
 		sLog.Printf("error posting job: %v", err)
 		sendErrorResponse(w, "error posting job", http.StatusInternalServerError)
@@ -180,7 +180,7 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 	// Create job signatures for all the jobs in the group.
 	var sigs []*tasks.Signature
 	for _, j := range group.Jobs {
-		sig, err := createJobSignature(j, j.TaskName, j.TTL, jobber)
+		sig, err := createJobSignature(j, j.TaskName, j.TTL, server)
 		if err != nil {
 			sLog.Printf("error creating job signature: %v", err)
 			sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
@@ -207,7 +207,7 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	res, err := jobber.Machinery.SendGroup(taskGroup, conc)
+	res, err := server.Machinery.SendGroup(taskGroup, conc)
 	if err != nil {
 		sLog.Printf("error posting job group: %v", err)
 		sendErrorResponse(w, "error posting job group", http.StatusInternalServerError)
@@ -243,7 +243,7 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 func handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	var (
 		jobID    = chi.URLParam(r, "jobID")
-		s, err   = jobber.Machinery.GetBackend().GetState(jobID)
+		s, err   = server.Machinery.GetBackend().GetState(jobID)
 		purge, _ = strconv.ParseBool(r.URL.Query().Get("purge"))
 	)
 
@@ -267,7 +267,7 @@ func handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Delete the job.
-	if err := jobber.Machinery.GetBackend().PurgeState(jobID); err != nil {
+	if err := server.Machinery.GetBackend().PurgeState(jobID); err != nil {
 		sLog.Printf("error deleting job: %v", err)
 		sendErrorResponse(w, fmt.Sprintf("error deleting job: %v", err), http.StatusGone)
 		return
@@ -291,7 +291,7 @@ func handleDeleteGroupJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get state of group.
-	res, err := jobber.Machinery.GetBackend().GroupTaskStates(groupID, 0)
+	res, err := server.Machinery.GetBackend().GroupTaskStates(groupID, 0)
 	if err != nil {
 		sLog.Printf("error fetching group status: %v", err)
 		sendErrorResponse(w, "error fetching group status", http.StatusInternalServerError)
@@ -301,7 +301,7 @@ func handleDeleteGroupJob(w http.ResponseWriter, r *http.Request) {
 	// If purge is set to false, delete job only if isn't completed yet.
 	if !purge {
 		// Get state of group ID to check if it has been completed or not.
-		s, err := jobber.Machinery.GetBackend().GetState(groupID)
+		s, err := server.Machinery.GetBackend().GetState(groupID)
 		if err == redis.ErrNil {
 			sendErrorResponse(w, "group not found", http.StatusNotFound)
 			return
@@ -330,7 +330,7 @@ func handleDeleteGroupJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Delete the job.
-		if err := jobber.Machinery.GetBackend().PurgeState(j.TaskUUID); err != nil {
+		if err := server.Machinery.GetBackend().PurgeState(j.TaskUUID); err != nil {
 			sLog.Printf("error deleting job: %v", err)
 			sendErrorResponse(w, fmt.Sprintf("error deleting job: %v", err), http.StatusGone)
 			return
@@ -338,7 +338,7 @@ func handleDeleteGroupJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Delete the group.
-	if err := jobber.Machinery.GetBackend().PurgeState(groupID); err != nil {
+	if err := server.Machinery.GetBackend().PurgeState(groupID); err != nil {
 		sLog.Printf("error deleting job: %v", err)
 		sendErrorResponse(w, fmt.Sprintf("error deleting job: %v", err), http.StatusGone)
 		return

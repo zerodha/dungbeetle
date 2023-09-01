@@ -105,7 +105,7 @@ func setup() {
 			sLog.Fatalf("error running schema: %v", err)
 		}
 
-		jobber.DBs[dbName] = conn
+		server.DBs[dbName] = conn
 	}
 
 	// Connect to backend DBs.
@@ -132,23 +132,23 @@ func setup() {
 			sLog.Fatalf("error initializing result backend: %v", err)
 		}
 
-		jobber.ResultBackends[dbName] = backend
+		server.ResultBackends[dbName] = backend
 	}
 
 	// Parse and load SQL queries.
 	for _, d := range []string{"../sql"} {
 		sLog.Printf("loading SQL queries from directory: %s", d)
-		tasks, err := loadSQLTasks(d, jobber.DBs, jobber.ResultBackends, "default-queue")
+		tasks, err := loadSQLTasks(d, server.DBs, server.ResultBackends, "default-queue")
 		if err != nil {
 			sLog.Fatal(err)
 		}
 
 		for t, q := range tasks {
-			if _, ok := jobber.Tasks[t]; ok {
+			if _, ok := server.Tasks[t]; ok {
 				sLog.Fatalf("duplicate task %s", t)
 			}
 
-			jobber.Tasks[t] = q
+			server.Tasks[t] = q
 		}
 		sLog.Printf("loaded %d SQL queries from %s", len(tasks), d)
 	}
@@ -168,18 +168,18 @@ func setup() {
 
 	// Setup the job server.
 	var err error
-	jobber.Machinery, err = connectJobServer(jobber, &config.Config{
+	server.Machinery, err = connectJobServer(server, &config.Config{
 		Broker:          "redis://localhost:6379/1",
 		DefaultQueue:    "default-queue",
 		ResultBackend:   "redis://localhost:6379/1",
 		ResultsExpireIn: 3600,
-	}, jobber.Tasks)
+	}, server.Tasks)
 	if err != nil {
 		sLog.Fatal(err)
 	}
 
-	jobber.Worker = jobber.Machinery.NewWorker("dungbeetle", 10)
-	go jobber.Worker.Launch()
+	server.Worker = server.Machinery.NewWorker("dungbeetle", 10)
+	go server.Worker.Launch()
 }
 
 // testRequest does the request, response serializing

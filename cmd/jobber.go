@@ -11,7 +11,7 @@ import (
 	machinery "github.com/RichardKnop/machinery/v1"
 	"github.com/RichardKnop/machinery/v1/config"
 	"github.com/RichardKnop/machinery/v1/tasks"
-	"github.com/knadh/sql-jobber/models"
+	"github.com/zerodha/dungbeetle/models"
 	uuid "github.com/satori/go.uuid"
 )
 

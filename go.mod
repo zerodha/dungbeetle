@@ -1,4 +1,4 @@
-module github.com/knadh/sql-jobber
+module github.com/zerodha/dungbeetle
 
 go 1.12
 

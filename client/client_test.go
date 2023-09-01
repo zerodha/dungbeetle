@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/knadh/sql-jobber/models"
+	"github.com/zerodha/dungbeetle/models"
 	"github.com/stretchr/testify/assert"
 )
 

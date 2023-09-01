@@ -5,8 +5,8 @@ broker_address = "redis://127.0.0.1:6379/1"
 
 # This is where Machinery stores it's job states.
 # In Machinery's terminology, this is its "result backend"
-# and is not to be confused with the SQL Jobber's 'result_backend'
-# where SQL Jobber stores results of jobs, bypassing machinery.
+# and is not to be confused with the DungBeetle's 'result_backend'
+# where DungBeetle stores results of jobs, bypassing machinery.
 state_address = "redis://127.0.0.1:6379/1"
 
 [results]

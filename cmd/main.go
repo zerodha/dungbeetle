@@ -109,9 +109,9 @@ func init() {
 	}
 
 	// Load environment variables and merge into the loaded config.
-	if err := ko.Load(env.Provider("SQL_JOBBER", ".", func(s string) string {
+	if err := ko.Load(env.Provider("DUNG_BEETLE", ".", func(s string) string {
 		return strings.Replace(
-			strings.ToLower(strings.TrimPrefix(s, "SQL_JOBBER")), "__", ".", -1)
+			strings.ToLower(strings.TrimPrefix(s, "DUNG_BEETLE")), "__", ".", -1)
 	}), nil); err != nil {
 		sLog.Fatalf("error loading config from env: %v", err)
 	}

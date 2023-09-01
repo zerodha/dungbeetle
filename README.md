@@ -1,36 +1,33 @@
 <a href="https://zerodha.tech"><img src="https://zerodha.tech/static/images/github-badge.svg" align="right" /></a>
 
-# SQL Jobber
+![logo](https://github.com/knadh/sql-jobber/assets/547147/be2ad6f3-45fe-444c-9663-70d98d7ae037)
 
-![test workflow](https://github.com/knadh/sql-jobber/actions/workflows/test.yml/badge.svg)
-![release workflow](https://github.com/knadh/sql-jobber/actions/workflows/release.yml/badge.svg)
+DungBeetle is a lightweight, single binary distributed job server designed for queuing and asynchronously executing large numbers of SQL read jobs (eg: reports) against SQL databases. When the read jobs are executed, the results are written to separate ephemeral results databases (where the results of every job is its own dedicated table), enabling faster retrieval.
 
-sql-jobber is a light weight SQL "job server" that maintains a distributed, asynchronous job queue of SQL read jobs against one or more large source databases. The results are written to one or more separate "cache" databases, where each result set is a newly created table, from where the results can be fetched as many times much faster than querying the source databases.
-
-This is useful for queuing and offloading report generation on applications without clogging source databases, especially in the case of end user applications.
+A prominent usecase is user facing report generation in applications where requests can be queued and reports returned asynchronously without overloading large source databases.
 
 
-## Parts
+## Features
 
-- Supports MySQL and PostgreSQL as source databases.
-- Supports MySQL and PostgreSQL as result / cache databases for job responses.
+- Supports MySQL, PostgreSQL, ClickHouse as source databases.
+- Supports MySQL and PostgreSQL as result / cache databases for job results.
 - Standalone server that exposes HTTP APIs for managing jobs and groups of jobs (list, post, status check, cancel jobs).
 - Reads SQL queries from .sql files and registers them as jobs ready to be queued.
-- Written in Go and built on top of [Machinery](https://github.com/RichardKnop/machinery). Supports multi-process, multi-threaded, asynchronous distributed job queueing via a common broker backend (Redis, AMQP etc.)
+- Supports multi-process, multi-threaded, asynchronous distributed job queueing via a common broker backend (Redis, AMQP etc.)
 
 ## Usecase
 
-An application that has a very large SQL database, when there are several thousand concurrent users requesting reports from the database simultaneously, every second of IO delay in query execution locks up the application's threads, snowballing and overloading the application.
+Consider an application with a very large SQL database. When there are several thousand concurrent users requesting reports from an application connected to it, every second of I/O delay during query execution can bottleneck the application and the database, causing a snowball effect.
 
-Instead, defer every single report request into a job queue, there by immediately freeing up the front end application. The reports are presented to users as they're executed (frontend polls the job's status and prevents the user from sending any more queries). Fixed SQL Jobber servers and worker threads also act as traffic control and prevent the primary database from being indundated with requests.
+Instead, user requests for report generations can be deferred to a job queue in the backend, there by immediately freeing up the frontend application. The reports are presented to users as they're executed (frontend polls the job's status and prevents the user from sending any more queries). DungBeetle server and worker instances also act as traffic control and prevent the primary database from being indundated with requests.
 
-Once the reports are generated, it's natural for users to further transform the results by slicing, sorting, and filtering, generating additional queries to the primary database. To offset this load, these subsequent queries can be sent to the smaller, much faster results cache database. These results are of course ephemeral and can be thrown away or expired.
+Once the reports are generated (SQL queries finish executing), it's natural for users to further transform the results by slicing, sorting, and filtering, generating additional queries to the primary database. To offset this load, these subsequent queries can be sent to the smaller, much faster results cache database. These results are of course ephemeral and can be thrown away or expired.
 
-![sql-job-server png](https://user-images.githubusercontent.com/547147/44912100-d3f27b80-ad46-11e8-9938-2b6c0f974488.png)
+![image](https://github.com/knadh/sql-jobber/assets/547147/48adab5b-120e-4e30-9326-28c60c7f0758)
 
 ## Concepts
 #### Task
-A task is a named SQL job is loaded into the server on startup. Tasks are defined in .sql files in the simple [goyesql](https://github.com/knadh/goyesql) format. Such queries are self-contained and produce the desired final output with neatly named columns. They can take arbitrary positional arguments for execution. A task can be attached to one or more specific databases defined in the configuration using the `-- db:` tag. In case of multiple databases, the query will be executed against a random one from the list, unless a specific database is specified in the API request (`db`). A `-- queue:` tag to always route the task to a particular queue, unless it's overriden by the `queue` param when making a job request. A `-- results:` tag specifies the results backend to which the results of a task will be written. If there are multiple result backends specified, the results are written a random one.
+A task is a named SQL query that is loaded into the server on startup. Tasks are defined in .sql files in the simple [goyesql](https://github.com/knadh/goyesql) format. Such queries are self-contained and produce the desired final output with neatly named columns. They can take arbitrary positional arguments for execution. A task can be attached to one or more specific databases defined in the configuration using the `-- db:` tag. In case of multiple databases, the query will be executed against a random one from the list, unless a specific database is specified in the API request (`db`). A `-- queue:` tag to always route the task to a particular queue, unless it's overriden by the `queue` param when making a job request. A `-- results:` tag specifies the results backend to which the results of a task will be written. If there are multiple result backends specified, the results are written a random one.
 
 Example:
 ```sql
@@ -57,7 +54,7 @@ SELECT * FROM entries WHERE user_id = ? AND timestamp > ? and timestamp < ?;
 Here, when the server starts, the queries `get_profit_summary` and `get_profit_entries` are registered automatically as tasks. Internally, the server validates and prepares these SQL statements (unless `raw: 1`). `?` are MySQL value placholders. For Postgres, the placeholders are `$1, $2 ...`
 
 #### Job
-A job is an instance of a named task that has been queued to run. Each job has an ID that can be used to track its status. If an ID is not passed explicitly, it is generated internally and returned. These IDs need not be unique, but only a single job with a certain ID can run at any given point. For the next job with the same ID to be scheduled, the previous job has to finish execution. Using non-unique IDs like this is useful in cases where users can be prevented from sending multiple requests for the same reports, like in our usecases.
+A job is an instance of a task that has been queued to run. Each job has an ID that can be used to track its status. If an ID is not passed explicitly, it is generated internally and returned. These IDs need not be unique, but only a single job with a certain ID can run at any given point. For the next job with the same ID to be scheduled, the previous job has to finish execution. Using non-unique IDs like this is useful in cases where users can be prevented from sending multiple requests for the same reports, like in our usecases.
 
 An application polls with the job ID to check if results are ready for consumption.
 
@@ -66,7 +63,7 @@ The results from an SQL query job are written to a result backend (MySQL or Post
 
 
 ## Installation
-A pre-compiled binary can be downloaded from the [releases](https://github.com/knadh/sql-jobber/releases) page.
+A pre-compiled binary can be downloaded from the [releases](https://github.com/zerodha/dungbeetle/releases) page.
 
 ### 2) Configure
 Copy the `config.toml.sample` file as `config.toml` somewhere and edit the configuration values.
@@ -76,9 +73,9 @@ Write your SQL query tasks in `.sql` files in the `goyesql` format (as shown in 
 
 ### 4) Start the server
 ```shell
-sql-jobber --config /path/to/config.toml --sql-directory /path/to/your/sql/queries
+dungbeetle --config /path/to/config.toml --sql-directory /path/to/your/sql/queries
 
-# Run 'sql-jobber --help' to see all supported arguments
+# Run 'dungbeetle --help' to see all supported arguments
 ```
 
 Starting the server runs a set of workers listening on a default job queue. It also starts an HTTP service on `http://127.0.0.1:6060` which is the control interface. It's possible to run the server without the HTTP interface by passing the `--worker-only` flag.
@@ -142,18 +139,18 @@ $ curl localhost:6060/jobs/myjob
 ### Multiple queues, workers, and job distribution
 It's possible to run multiple workers on one or more machines that run different jobs with different concurrency levels independently of each other using different queues. Not all of these instances need to expose the HTTP service and can run as `--worker-only`. This doesn't really make a difference as long as all instances connect to the same broker backend. A job posted to any instance will be routed correctly to the right instances based on the `queue` parameter.
 
-Often times, different queries have different priorities of execution. Some may need to return results faster than others. The below example shows two SQL Jobber servers being run, one with 30 workers and one with just 5 to process jobs of different priorities.
+Often times, different queries have different priorities of execution. Some may need to return results faster than others. The below example shows two DungBeetle servers being run, one with 30 workers and one with just 5 to process jobs of different priorities.
 
 
 ```shell
 # Run the primary worker + HTTP control interface
-sql-jobber --config /path/to/config.toml --sql-directory /path/to/sql/dir \
+dungbeetle --config /path/to/config.toml --sql-directory /path/to/sql/dir \
 	--queue "high_priority" \
     --worker-name "high_priority_worker" \
     --worker-concurrency 30
 
 # Run another worker on a different queue to handle low priority jobs
-sql-jobber --config /path/to/config.toml --sql-directory /path/to/sql/dir \
+dungbeetle --config /path/to/config.toml --sql-directory /path/to/sql/dir \
 	--queue "low_priority" \
     --worker-name "low_priority_worker" \
     --worker-concurrency 5 \
@@ -166,8 +163,8 @@ $ curl localhost:6060/tasks/get_profit_entries_by_date/jobs -H "Content-Type: ap
 $ curl localhost:6060/tasks/get_profit_entries_by_date/jobs -H "Content-Type: application/json" --data '{"job_id": "myjob", "queue": "low_priority"}'
 ```
 
-## API client
-`github.com/knadh/sql-jobber/client` package can be used as a Go HTTP API client for sql-jobber.
+## Go API client
+`github.com/zerodha/dungbeetle/client` package can be used as a Go HTTP API client for DungBeetle.
 
 
 ## License

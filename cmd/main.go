@@ -39,8 +39,8 @@ type constants struct {
 
 type taskFunc func(jobID string, taskName, db string, ttl int, args ...interface{}) (int64, error)
 
-// Jobber represents the tooling required to run a job server.
-type Jobber struct {
+// Server represents the tooling required to run a job server.
+type Server struct {
 	Tasks     Tasks
 	Machinery *machinery.Server
 	Worker    *machinery.Worker
@@ -66,7 +66,7 @@ var (
 	buildString = "unknown"
 	sLog        = log.New(os.Stdout, "BEETLE: ", log.Ldate|log.Ltime|log.Lshortfile)
 	ko          = koanf.New(".")
-	jobber      = &Jobber{
+	server      = &Server{
 		Tasks:          make(Tasks),
 		DBs:            make(DBs),
 		ResultBackends: make(ResultBackends),
@@ -154,7 +154,7 @@ func main() {
 			log.Fatal(err)
 		}
 
-		jobber.DBs[dbName] = conn
+		server.DBs[dbName] = conn
 	}
 
 	// Connect to backend DBs.
@@ -177,28 +177,28 @@ func main() {
 			log.Fatalf("error initializing result backend: %v", err)
 		}
 
-		jobber.ResultBackends[dbName] = backend
+		server.ResultBackends[dbName] = backend
 	}
 
 	// Parse and load SQL queries ("tasks").
 	for _, d := range ko.MustStrings("sql-directory") {
 		sLog.Printf("loading SQL queries from directory: %s", d)
-		tasks, err := loadSQLTasks(d, jobber.DBs, jobber.ResultBackends, ko.MustString("queue"))
+		tasks, err := loadSQLTasks(d, server.DBs, server.ResultBackends, ko.MustString("queue"))
 		if err != nil {
 			sLog.Fatal(err)
 		}
 
 		for t, q := range tasks {
-			if _, ok := jobber.Tasks[t]; ok {
+			if _, ok := server.Tasks[t]; ok {
 				sLog.Fatalf("duplicate task %s", t)
 			}
 
-			jobber.Tasks[t] = q
+			server.Tasks[t] = q
 		}
 
 		sLog.Printf("loaded %d SQL queries from %s", len(tasks), d)
 	}
-	sLog.Printf("loaded %d tasks in total", len(jobber.Tasks))
+	sLog.Printf("loaded %d tasks in total", len(server.Tasks))
 
 	// Bind the server HTTP endpoints.
 	r := chi.NewRouter()
@@ -219,12 +219,12 @@ func main() {
 
 	// Setup the job server.
 	var err error
-	jobber.Machinery, err = connectJobServer(jobber, &config.Config{
+	server.Machinery, err = connectJobServer(server, &config.Config{
 		Broker:          ko.MustString("machinery.broker_address"),
 		DefaultQueue:    ko.MustString("queue"),
 		ResultBackend:   ko.MustString("machinery.state_address"),
 		ResultsExpireIn: ko.MustInt("result_backend.results_ttl"),
-	}, jobber.Tasks)
+	}, server.Tasks)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func main() {
 		}()
 	}
 
-	jobber.Worker = jobber.Machinery.NewWorker(ko.MustString("worker-name"),
+	server.Worker = server.Machinery.NewWorker(ko.MustString("worker-name"),
 		ko.Int("worker-concurrency"))
-	jobber.Worker.Launch()
+	server.Worker.Launch()
 }

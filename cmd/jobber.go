@@ -11,8 +11,8 @@ import (
 	machinery "github.com/RichardKnop/machinery/v1"
 	"github.com/RichardKnop/machinery/v1/config"
 	"github.com/RichardKnop/machinery/v1/tasks"
-	"github.com/zerodha/dungbeetle/models"
 	uuid "github.com/satori/go.uuid"
+	"github.com/zerodha/dungbeetle/models"
 )
 
 var (
@@ -21,14 +21,14 @@ var (
 )
 
 // createJobSignature creates and returns a machinery tasks.Signature{} from the given job params.
-func createJobSignature(j models.JobReq, taskName string, ttl int, jobber *Jobber) (tasks.Signature, error) {
-	task, ok := jobber.Tasks[taskName]
+func createJobSignature(j models.JobReq, taskName string, ttl int, srv *Server) (tasks.Signature, error) {
+	task, ok := srv.Tasks[taskName]
 	if !ok {
 		return tasks.Signature{}, fmt.Errorf("unrecognized task: %s", taskName)
 	}
 
 	// Check if a job with the same ID is already running.
-	if s, err := jobber.Machinery.GetBackend().GetState(j.JobID); err == nil && !s.IsCompleted() {
+	if s, err := srv.Machinery.GetBackend().GetState(j.JobID); err == nil && !s.IsCompleted() {
 		return tasks.Signature{}, fmt.Errorf("job '%s' is already running", j.JobID)
 	}
 
@@ -78,9 +78,9 @@ func createJobSignature(j models.JobReq, taskName string, ttl int, jobber *Jobbe
 }
 
 // executeTask executes an SQL statement job and inserts the results into the result backend.
-func executeTask(jobID, taskName, dbName string, ttl time.Duration, args []interface{}, task *Task, jobber *Jobber) (int64, error) {
+func executeTask(jobID, taskName, dbName string, ttl time.Duration, args []interface{}, task *Task, srv *Server) (int64, error) {
 	// If the job's deleted, stop.
-	if _, err := jobber.Machinery.GetBackend().GetState(jobID); err != nil {
+	if _, err := srv.Machinery.GetBackend().GetState(jobID); err != nil {
 		return 0, errors.New("the job was canceled")
 	}
 
@@ -131,16 +131,16 @@ func executeTask(jobID, taskName, dbName string, ttl time.Duration, args []inter
 	}
 	defer rows.Close()
 
-	return writeResults(jobID, task, ttl, rows, jobber)
+	return writeResults(jobID, task, ttl, rows, srv)
 }
 
 // writeResults writes results from an SQL query to a result backend.
-func writeResults(jobID string, task *Task, ttl time.Duration, rows *sql.Rows, jobber *Jobber) (int64, error) {
+func writeResults(jobID string, task *Task, ttl time.Duration, rows *sql.Rows, srv *Server) (int64, error) {
 	var numRows int64
 
 	// Result backend.
 	name, backend := task.ResultBackends.GetRandom()
-	jobber.Logger.Printf("sending results form '%s' to '%s'", jobID, name)
+	srv.Logger.Printf("sending results form '%s' to '%s'", jobID, name)
 
 	w, err := backend.NewResultSet(jobID, task.Name, ttl)
 	if err != nil {
@@ -201,7 +201,7 @@ func writeResults(jobID string, task *Task, ttl time.Duration, rows *sql.Rows, j
 
 // connectJobServer creates and returns a Machinery job server
 // while registering the given SQL queries as tasks.
-func connectJobServer(jobber *Jobber, cfg *config.Config, queries Tasks) (*machinery.Server, error) {
+func connectJobServer(srv *Server, cfg *config.Config, queries Tasks) (*machinery.Server, error) {
 	server, err := machinery.NewServer(cfg)
 	if err != nil {
 		return nil, err
@@ -212,11 +212,11 @@ func connectJobServer(jobber *Jobber, cfg *config.Config, queries Tasks) (*machi
 		server.RegisterTask(string(name), func(q Task) taskFunc {
 			return func(jobID, taskName, db string, ttl int, args ...interface{}) (int64, error) {
 				// Check if the job's been deleted.
-				if _, err := jobber.Machinery.GetBackend().GetState(jobID); err != nil {
+				if _, err := srv.Machinery.GetBackend().GetState(jobID); err != nil {
 					return 0, fmt.Errorf("Skipping deleted job: %v", err)
 				}
 
-				return executeTask(jobID, taskName, db, time.Duration(ttl)*time.Second, args, &q, jobber)
+				return executeTask(jobID, taskName, db, time.Duration(ttl)*time.Second, args, &q, srv)
 			}
 		}(query))
 	}

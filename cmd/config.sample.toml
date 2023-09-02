@@ -11,7 +11,7 @@ state_address = "redis://127.0.0.1:6379/1"
 
 # TTL in seconds after which a job entry and its meta disappears from the Machinery
 # store. This does not remove results from the results DB.
-state_ttl = 10
+state_ttl = "30m"
 
 
 # These are the result backends where the results of various SQL query jobs are saved.
@@ -29,15 +29,10 @@ dsn = "postgres://user:password@host:5432/dbname?sslmode=disable"
 
 max_idle = 10
 max_active = 100
-connect_timeout = 10 # seconds
+connect_timeout = "10s"
 
 # Results table name. %s will be replaced by the job ID.
 results_table = "results_%s"
-
-# TTL in seconds after which a job entry and its meta disappears from the Machinery
-# store. This does not remove results from the results DB.
-results_ttl = 3600
-
 
 
 # The map of the source databases against which SQL job queries
@@ -54,4 +49,4 @@ dsn = "user:password@tcp(host:3306)/dbname"
 
 max_idle = 10
 max_active = 100
-connect_timeout = 10 # seconds
+connect_timeout = "10s"

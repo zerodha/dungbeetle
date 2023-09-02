@@ -362,7 +362,7 @@ func (co *Core) makeJob(j models.JobReq, taskName string) (tasks.Signature, erro
 		{Type: "string", Value: j.JobID},
 		{Type: "string", Value: taskName},
 		{Type: "string", Value: j.DB},
-		{Type: "int", Value: ttl},
+		{Type: "int", Value: ttl.Seconds()},
 	}, sliceToTaskArgs(j.Args)...)
 
 	var eta *time.Time

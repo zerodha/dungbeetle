@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/knadh/koanf"
+	"github.com/knadh/koanf/v2"
 	"github.com/zerodha/dungbeetle/backends"
 )
 

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/knadh/goyesql"
+	"github.com/knadh/goyesql/v2"
 )
 
 // Task represents an SQL query with its prepared and raw forms.

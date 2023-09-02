@@ -3,19 +3,19 @@ module github.com/zerodha/dungbeetle
 go 1.20
 
 require (
-	github.com/ClickHouse/clickhouse-go v1.4.5
-	github.com/RichardKnop/machinery v1.10.5
-	github.com/go-chi/chi v4.1.2+incompatible
-	github.com/go-sql-driver/mysql v1.6.0
+	github.com/ClickHouse/clickhouse-go v1.5.4
+	github.com/RichardKnop/machinery v1.10.6
+	github.com/go-chi/chi/v5 v5.0.10
+	github.com/go-sql-driver/mysql v1.7.1
+	github.com/gofrs/uuid/v5 v5.0.0
 	github.com/gomodule/redigo v2.0.0+incompatible
-	github.com/knadh/goyesql v2.0.0+incompatible
+	github.com/knadh/goyesql/v2 v2.2.0
 	github.com/knadh/koanf/parsers/toml v0.1.0
 	github.com/knadh/koanf/providers/env v0.1.0
 	github.com/knadh/koanf/providers/file v0.1.0
 	github.com/knadh/koanf/providers/posflag v0.1.0
 	github.com/knadh/koanf/v2 v2.0.1
-	github.com/lib/pq v1.10.1
-	github.com/satori/go.uuid v1.2.0
+	github.com/lib/pq v1.10.9
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.8.4
 )

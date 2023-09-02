@@ -104,7 +104,7 @@ func setup() {
 			lo.Fatalf("error running schema: %v", err)
 		}
 
-		server.DBs[dbName] = conn
+		mgr.DBs[dbName] = conn
 	}
 
 	// Connect to backend DBs.
@@ -131,23 +131,23 @@ func setup() {
 			lo.Fatalf("error initializing result backend: %v", err)
 		}
 
-		server.ResultBackends[dbName] = backend
+		mgr.ResultBackends[dbName] = backend
 	}
 
 	// Parse and load SQL queries.
 	for _, d := range []string{"../sql"} {
 		lo.Printf("loading SQL queries from directory: %s", d)
-		tasks, err := loadSQLTasks(d, server.DBs, server.ResultBackends, "default-queue")
+		tasks, err := loadSQLTasks(d, mgr.DBs, mgr.ResultBackends, "default-queue")
 		if err != nil {
 			lo.Fatal(err)
 		}
 
 		for t, q := range tasks {
-			if _, ok := server.Tasks[t]; ok {
+			if _, ok := mgr.Tasks[t]; ok {
 				lo.Fatalf("duplicate task %s", t)
 			}
 
-			server.Tasks[t] = q
+			mgr.Tasks[t] = q
 		}
 		lo.Printf("loaded %d SQL queries from %s", len(tasks), d)
 	}
@@ -161,24 +161,24 @@ func setup() {
 	testRouter.Post("/tasks/{taskName}/jobs", handlePostJob)
 	testRouter.Get("/jobs/{jobID}", handleGetJobStatus)
 	testRouter.Get("/jobs/queue/{queue}", handleGetPendingJobs)
-	testRouter.Delete("/jobs/{jobID}", handleDeleteJob)
+	testRouter.Delete("/jobs/{jobID}", handleCancelJob)
 	testRouter.Post("/groups", handlePostJobGroup)
 	testRouter.Get("/groups/{groupID}", handleGetGroupStatus)
 
 	// Setup the job server.
 	var err error
-	server.Machinery, err = connectJobServer(server, &config.Config{
+	mgr.Machinery, err = connectJobServer(mgr, &config.Config{
 		Broker:          "redis://localhost:6379/1",
 		DefaultQueue:    "default-queue",
 		ResultBackend:   "redis://localhost:6379/1",
 		ResultsExpireIn: 3600,
-	}, server.Tasks)
+	}, mgr.Tasks)
 	if err != nil {
 		lo.Fatal(err)
 	}
 
-	server.Worker = server.Machinery.NewWorker("dungbeetle", 10)
-	go server.Worker.Launch()
+	mgr.Worker = mgr.Machinery.NewWorker("dungbeetle", 10)
+	go mgr.Worker.Launch()
 }
 
 // testRequest does the request, response serializing

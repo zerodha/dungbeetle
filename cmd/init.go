@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/knadh/koanf/v2"
 	"github.com/zerodha/dungbeetle/internal/core"
 	"github.com/zerodha/dungbeetle/internal/dbpool"
@@ -44,9 +43,6 @@ func generateConfig() error {
 // initHTTP is a blocking function that initializes and runs the HTTP server.
 func initHTTP(co *core.Core) {
 	r := chi.NewRouter()
-
-	// Log every request.
-	r.Use(middleware.RequestLogger(&middleware.DefaultLogFormatter{Logger: log.New(os.Stdout, "HTTP: ", log.Ldate|log.Ltime)}))
 
 	// Middleware to attach the instance of core to every handler.
 	r.Use(func(next http.Handler) http.Handler {

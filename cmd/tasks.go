@@ -22,9 +22,8 @@ type Task struct {
 // Tasks represents a map of prepared SQL statements.
 type Tasks map[string]Task
 
-// loadSQLTasks loads SQL queries from all the .sql
-// files in a given directory.
-func loadSQLTasks(dir string, dbs DBs, resBackends ResultBackends, defQueue string) (Tasks, error) {
+// loadSQLTasks loads SQL queries from all the .sql files in a given directory.
+func loadSQLTasks(dir string, allDBs DBs, resBackends ResultBackends, defQueue string) (Tasks, error) {
 	// Discover .sql files.
 	files, err := filepath.Glob(dir + "/*.sql")
 	if err != nil {
@@ -48,7 +47,7 @@ func loadSQLTasks(dir string, dbs DBs, resBackends ResultBackends, defQueue stri
 				// DBs tagged specifically to queries in the SQL file,
 				// or will be the map of all avaliable DBs. During execution
 				// one of these DBs will be picked randomly.
-				dbsToAttach DBs
+				dbs DBs
 
 				resBackendsToAttach ResultBackends
 			)
@@ -60,13 +59,13 @@ func loadSQLTasks(dir string, dbs DBs, resBackends ResultBackends, defQueue stri
 
 			// Are there specific DB's tagged to the query?
 			if dbTag, ok := s.Tags["db"]; ok {
-				dbsToAttach, err = DBsFromTag(dbTag, dbs)
+				dbs, err = DBsFromTag(dbTag, allDBs)
 				if err != nil {
 					return nil, fmt.Errorf("error loading query %s (%s): %v", name, f, err)
 				}
 			} else {
 				// No specific DBs. Attach all.
-				dbsToAttach = dbs
+				dbs = allDBs
 			}
 
 			// Are there specific result backends tagged to the query?
@@ -87,7 +86,7 @@ func loadSQLTasks(dir string, dbs DBs, resBackends ResultBackends, defQueue stri
 			} else {
 				// Prepare the statement against all tagged DBs just to be sure.
 				typ = "prepared"
-				for _, db := range dbsToAttach {
+				for _, db := range dbs {
 					_, err := db.Prepare(s.Query)
 					if err != nil {
 						return nil, fmt.Errorf("error preparing SQL query %s: %v", name, err)
@@ -101,14 +100,13 @@ func loadSQLTasks(dir string, dbs DBs, resBackends ResultBackends, defQueue stri
 				queue = strings.TrimSpace(v)
 			}
 
-			lo.Printf("-- task %s (%s) (db = %v) (results = %v) (queue = %v)", name, typ,
-				dbsToAttach.GetNames(), resBackendsToAttach.GetNames(), queue)
+			lo.Printf("-- task %s (%s) (db = %v) (results = %v) (queue = %v)", name, typ, dbs.GetNames(), resBackendsToAttach.GetNames(), queue)
 			tasks[name] = Task{
 				Name:           name,
 				Queue:          queue,
 				Stmt:           stmt,
 				Raw:            s.Query,
-				DBs:            dbsToAttach,
+				DBs:            dbs,
 				ResultBackends: resBackendsToAttach,
 			}
 		}

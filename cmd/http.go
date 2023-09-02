@@ -16,8 +16,8 @@ import (
 // groupConcurrency represents the concurrency factor for job groups.
 const groupConcurrency = 5
 
-// regexValidateName represents the character classes allowed in a job ID.
-var regexValidateName, _ = regexp.Compile("(?i)^[a-z0-9-_:]+$")
+// reValidateName represents the character classes allowed in a job ID.
+var reValidateName = regexp.MustCompile("(?i)^[a-z0-9-_:]+$")
 
 // handleGetTasksList returns the jobs list. If the optional query param ?sql=1
 // is passed, it returns the raw SQL bodies as well.
@@ -33,7 +33,10 @@ func handleGetTasksList(w http.ResponseWriter, r *http.Request) {
 
 // handleGetJobStatus returns the status of a given jobID.
 func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "jobID")
+	var (
+		jobID = chi.URLParam(r, "jobID")
+	)
+
 	out, err := server.Machinery.GetBackend().GetState(jobID)
 	if err == redis.ErrNil {
 		sendErrorResponse(w, "job not found", http.StatusNotFound)
@@ -54,7 +57,10 @@ func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 
 // handleGetGroupStatus returns the status of a given groupID.
 func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
-	groupID := chi.URLParam(r, "groupID")
+	var (
+		groupID = chi.URLParam(r, "groupID")
+	)
+
 	if _, err := server.Machinery.GetBackend().GetState(groupID); err == redis.ErrNil {
 		sendErrorResponse(w, "group not found", http.StatusNotFound)
 		return
@@ -69,7 +75,7 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 
 	var (
 		jobs        = make([]models.JobStatusResp, len(res))
-		jobsDone    = 0
+		numDone     = 0
 		groupFailed = false
 	)
 	for i, j := range res {
@@ -81,24 +87,22 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if j.State == tasks.StateSuccess {
-			jobsDone++
+			numDone++
 		} else if j.State == tasks.StateFailure {
 			groupFailed = true
 		}
 	}
 
-	var groupStatus string
+	status := tasks.StatePending
 	if groupFailed {
-		groupStatus = tasks.StateFailure
-	} else if len(res) == jobsDone {
-		groupStatus = tasks.StateSuccess
-	} else {
-		groupStatus = tasks.StatePending
+		status = tasks.StateFailure
+	} else if len(res) == numDone {
+		status = tasks.StateSuccess
 	}
 
 	out := models.GroupStatusResp{
 		GroupID: groupID,
-		State:   groupStatus,
+		State:   status,
 		Jobs:    jobs,
 	}
 
@@ -121,7 +125,6 @@ func handleGetPendingJobs(w http.ResponseWriter, r *http.Request) {
 func handlePostJob(w http.ResponseWriter, r *http.Request) {
 	var (
 		taskName = chi.URLParam(r, "taskName")
-		job      models.JobReq
 	)
 
 	if r.ContentLength == 0 {
@@ -129,20 +132,23 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&job); err != nil {
+	var (
+		decoder = json.NewDecoder(r.Body)
+		req     models.JobReq
+	)
+	if err := decoder.Decode(&req); err != nil {
 		lo.Printf("error parsing request JSON: %v", err)
 		sendErrorResponse(w, "error parsing request JSON", http.StatusBadRequest)
 		return
 	}
 
-	if !regexValidateName.Match([]byte(job.JobID)) {
+	if !reValidateName.Match([]byte(req.JobID)) {
 		sendErrorResponse(w, "invalid characters in the `job_id`", http.StatusBadRequest)
 		return
 	}
 
 	// Create the job signature.
-	sig, err := createJobSignature(job, taskName, job.TTL, server)
+	sig, err := createJobSignature(req, taskName, req.TTL, server)
 	if err != nil {
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -169,9 +175,10 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 	var (
 		decoder = json.NewDecoder(r.Body)
-		group   models.GroupReq
+		req     models.GroupReq
 	)
-	if err := decoder.Decode(&group); err != nil {
+
+	if err := decoder.Decode(&req); err != nil {
 		lo.Printf("error parsing JSON body: %v", err)
 		sendErrorResponse(w, "error parsing JSON body", http.StatusBadRequest)
 		return
@@ -179,7 +186,7 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 
 	// Create job signatures for all the jobs in the group.
 	var sigs []*tasks.Signature
-	for _, j := range group.Jobs {
+	for _, j := range req.Jobs {
 		sig, err := createJobSignature(j, j.TaskName, j.TTL, server)
 		if err != nil {
 			lo.Printf("error creating job signature: %v", err)
@@ -191,23 +198,23 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	conc := groupConcurrency
-	if group.Concurrency > 0 {
-		conc = group.Concurrency
+	if req.Concurrency > 0 {
+		conc = req.Concurrency
 	}
 
 	// Create the group and send it.
-	taskGroup, _ := tasks.NewGroup(sigs...)
+	g, _ := tasks.NewGroup(sigs...)
 
 	// If there's an incoming group ID, overwrite the generated one.
-	if group.GroupID != "" {
-		taskGroup.GroupUUID = group.GroupID
+	if req.GroupID != "" {
+		g.GroupUUID = req.GroupID
 
-		for _, t := range taskGroup.Tasks {
-			t.GroupUUID = group.GroupID
+		for _, t := range g.Tasks {
+			t.GroupUUID = req.GroupID
 		}
 	}
 
-	res, err := server.Machinery.SendGroup(taskGroup, conc)
+	res, err := server.Machinery.SendGroup(g, conc)
 	if err != nil {
 		lo.Printf("error posting job group: %v", err)
 		sendErrorResponse(w, "error posting job group", http.StatusInternalServerError)
@@ -225,7 +232,7 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	gID := group.GroupID
+	gID := req.GroupID
 	if gID == "" {
 		gID = res[0].Signature.GroupUUID
 	}
@@ -254,7 +261,7 @@ func handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if !purge && s.IsCompleted() {
 		// If the job is already complete, no go.
-		sendErrorResponse(w, "can't delete job as it's already complete", http.StatusGone)
+		sendErrorResponse(w, "can't delete a completed job", http.StatusGone)
 		return
 	}
 
@@ -280,15 +287,9 @@ func handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 // If the job is running, it is cancelled first, and then deleted.
 func handleDeleteGroupJob(w http.ResponseWriter, r *http.Request) {
 	var (
-		groupID    = chi.URLParam(r, "groupID")
-		purge, err = strconv.ParseBool(r.URL.Query().Get("purge"))
+		groupID  = chi.URLParam(r, "groupID")
+		purge, _ = strconv.ParseBool(r.URL.Query().Get("purge"))
 	)
-
-	if err != nil {
-		lo.Printf("error parsing boolean: %v", err)
-		sendErrorResponse(w, "error parsing boolean", http.StatusInternalServerError)
-		return
-	}
 
 	// Get state of group.
 	res, err := server.Machinery.GetBackend().GroupTaskStates(groupID, 0)
@@ -306,6 +307,7 @@ func handleDeleteGroupJob(w http.ResponseWriter, r *http.Request) {
 			sendErrorResponse(w, "group not found", http.StatusNotFound)
 			return
 		}
+
 		// If the job is already complete, no go.
 		if s.IsCompleted() {
 			sendErrorResponse(w, "can't delete group as it's already complete", http.StatusGone)

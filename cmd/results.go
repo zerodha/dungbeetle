@@ -5,14 +5,14 @@ import (
 	"math/rand"
 	"strings"
 
-	"github.com/zerodha/dungbeetle/backends"
+	"github.com/zerodha/dungbeetle/models"
 )
 
 // ResultBackends represents a map of *sql.DB connections.
-type ResultBackends map[string]backends.ResultBackend
+type ResultBackends map[string]models.ResultBackend
 
 // Get returns an *sql.DB from the DBs map by name.
-func (r ResultBackends) Get(name string) backends.ResultBackend {
+func (r ResultBackends) Get(name string) models.ResultBackend {
 	return r[name]
 }
 
@@ -27,7 +27,7 @@ func (r ResultBackends) GetNames() []string {
 }
 
 // GetRandom returns a random *sql.DB from the DBs map.
-func (r ResultBackends) GetRandom() (string, backends.ResultBackend) {
+func (r ResultBackends) GetRandom() (string, models.ResultBackend) {
 	stop := 0
 	if len(r) > 1 {
 		stop = rand.Intn(len(r))

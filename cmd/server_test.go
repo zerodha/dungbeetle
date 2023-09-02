@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -193,7 +192,7 @@ func testRequest(t *testing.T, method, path string, body io.Reader, dest interfa
 	resp := httptest.NewRecorder()
 	testRouter.ServeHTTP(resp, req)
 
-	respBody, err := ioutil.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
 		return ""

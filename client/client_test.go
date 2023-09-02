@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zerodha/dungbeetle/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/zerodha/dungbeetle/models"
 )
 
 var (

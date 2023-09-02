@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/knadh/koanf/v2"
-	"github.com/zerodha/dungbeetle/backends"
+	"github.com/zerodha/dungbeetle/internal/resultbackends/sqldb"
 )
 
 // dbConfig represents an SQL database's configuration.
@@ -83,14 +83,14 @@ func initDBs(server *Server, ko *koanf.Koanf) {
 			log.Fatal(err)
 		}
 
-		opt := backends.Opt{
+		opt := sqldb.Opt{
 			DBType:         cfg.Type,
 			ResultsTable:   ko.MustString(fmt.Sprintf("results.%s.results_table", dbName)),
 			UnloggedTables: cfg.Unlogged,
 		}
 
 		// Create a new backend instance.
-		backend, err := backends.NewSQLBackend(conn, opt, lo)
+		backend, err := sqldb.NewSQLBackend(conn, opt, lo)
 		if err != nil {
 			log.Fatalf("error initializing result backend: %v", err)
 		}

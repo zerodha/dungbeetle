@@ -1,0 +1,547 @@
+package core
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"log"
+	"sync"
+	"time"
+
+	machinery "github.com/RichardKnop/machinery/v1"
+	"github.com/RichardKnop/machinery/v1/config"
+	"github.com/RichardKnop/machinery/v1/tasks"
+	uuid "github.com/gofrs/uuid/v5"
+	"github.com/gomodule/redigo/redis"
+	"github.com/zerodha/dungbeetle/internal/dbpool"
+	"github.com/zerodha/dungbeetle/models"
+)
+
+type taskFunc func(jobID string, taskName, db string, ttl int, args ...interface{}) (int64, error)
+
+type Opt struct {
+	DefaultQueue            string
+	DefaultGroupConcurrency int
+	DefaultTTL              int
+
+	// DSNs for connecting to the broker backend and the broker state backend.
+	QueueBrokerDSN string // eg: Kafka DSN
+	QueueStateDSN  string // eg: Redis DSN
+}
+
+type Core struct {
+	opt Opt
+
+	// Named SQL query tasks.
+	tasks Tasks
+
+	// Pool of source data DBs.
+	srcDBs dbpool.Pool
+
+	// Named map of one or more result backend DBs.
+	resultBackends ResultBackends
+
+	// Distributed queue system.
+	q *machinery.Server
+
+	lo *log.Logger
+}
+
+var (
+	jobContexts = make(map[string]context.CancelFunc)
+	jobMutex    = sync.RWMutex{}
+)
+
+// New returns a new instance of Core.
+func New(o Opt, srcDBs dbpool.Pool, res ResultBackends, lo *log.Logger) *Core {
+	return &Core{
+		opt:            o,
+		srcDBs:         srcDBs,
+		resultBackends: res,
+		lo:             lo,
+	}
+}
+
+// GetTasks returns the registered tasks map.
+func (c *Core) GetTasks() Tasks {
+	return c.tasks
+}
+
+// NewJob creates a new job out of a given task and registers it.
+func (c *Core) NewJob(j models.JobReq, taskName string, ttl int) (models.JobResp, error) {
+	sig, err := c.makeJob(j, taskName, ttl)
+	if err != nil {
+		return models.JobResp{}, err
+	}
+
+	// Create the job.
+	res, err := c.q.SendTask(&sig)
+	if err != nil {
+		return models.JobResp{}, err
+	}
+
+	return models.JobResp{
+		JobID:    res.Signature.UUID,
+		TaskName: res.Signature.Name,
+		Queue:    res.Signature.RoutingKey,
+		Retries:  res.Signature.RetryCount,
+		ETA:      res.Signature.ETA,
+	}, nil
+}
+
+func (c *Core) NewJobGroup(req models.GroupReq) (models.GroupResp, error) {
+	// Create job signatures for all the jobs in the group.
+	sigs := make([]*tasks.Signature, 0, len(req.Jobs))
+	for _, j := range req.Jobs {
+		sig, err := c.makeJob(j, j.TaskName, j.TTL)
+		if err != nil {
+			return models.GroupResp{}, err
+		}
+
+		sigs = append(sigs, &sig)
+	}
+
+	conc := c.opt.DefaultGroupConcurrency
+	if req.Concurrency > 0 {
+		conc = req.Concurrency
+	}
+
+	// Create the group and queue it.
+	g, _ := tasks.NewGroup(sigs...)
+
+	// If there's an incoming group ID, overwrite the generated one.
+	if req.GroupID != "" {
+		g.GroupUUID = req.GroupID
+
+		for _, t := range g.Tasks {
+			t.GroupUUID = req.GroupID
+		}
+	}
+
+	res, err := c.q.SendGroup(g, conc)
+	if err != nil {
+		return models.GroupResp{}, err
+	}
+
+	jobs := make([]models.JobResp, len(res))
+	for i, r := range res {
+		jobs[i] = models.JobResp{
+			JobID:    r.Signature.UUID,
+			TaskName: r.Signature.Name,
+			Queue:    r.Signature.RoutingKey,
+			Retries:  r.Signature.RetryCount,
+			ETA:      r.Signature.ETA,
+		}
+	}
+
+	gID := req.GroupID
+	if gID == "" {
+		gID = res[0].Signature.GroupUUID
+	}
+
+	return models.GroupResp{
+		GroupID: gID,
+		Jobs:    jobs,
+	}, nil
+}
+
+// GetJobStatus returns the status of a job.
+func (c *Core) GetJobStatus(jobID string) (models.JobStatusResp, error) {
+	out, err := c.q.GetBackend().GetState(jobID)
+	if err == redis.ErrNil {
+		return models.JobStatusResp{}, fmt.Errorf("job not found")
+	} else if err != nil {
+		c.lo.Printf("error fetching job status: %v", err)
+		return models.JobStatusResp{}, err
+	}
+
+	return models.JobStatusResp{
+		JobID:   out.TaskUUID,
+		State:   out.State,
+		Results: out.Results,
+		Error:   out.Error,
+	}, nil
+}
+
+func (c *Core) GetPendingJobs(queue string) ([]*tasks.Signature, error) {
+	out, err := c.q.GetBroker().GetPendingTasks(queue)
+	if err != nil {
+		c.lo.Printf("error fetching pending tasks: %v", err)
+		return nil, err
+	}
+
+	return out, nil
+}
+
+func (c *Core) GetJobGroupStatus(groupID string) (models.GroupStatusResp, error) {
+	if _, err := c.q.GetBackend().GetState(groupID); err == redis.ErrNil {
+		return models.GroupStatusResp{}, err
+	}
+
+	res, err := c.q.GetBackend().GroupTaskStates(groupID, 0)
+	if err != nil {
+		c.lo.Printf("error fetching group status: %v", err)
+		return models.GroupStatusResp{}, errors.New("error fetching group status")
+	}
+
+	var (
+		jobs        = make([]models.JobStatusResp, len(res))
+		numDone     = 0
+		groupFailed = false
+	)
+	for i, j := range res {
+		jobs[i] = models.JobStatusResp{
+			JobID:   j.TaskUUID,
+			State:   j.State,
+			Results: j.Results,
+			Error:   j.Error,
+		}
+
+		if j.State == tasks.StateSuccess {
+			numDone++
+		} else if j.State == tasks.StateFailure {
+			groupFailed = true
+		}
+	}
+
+	status := tasks.StatePending
+	if groupFailed {
+		status = tasks.StateFailure
+	} else if len(res) == numDone {
+		status = tasks.StateSuccess
+	}
+
+	return models.GroupStatusResp{
+		GroupID: groupID,
+		State:   status,
+		Jobs:    jobs,
+	}, nil
+}
+
+// CancelJob cancels a given pending/processing job.
+func (c *Core) CancelJob(jobID string, purge bool) error {
+	s, err := c.GetJobStatus(jobID)
+	if err != nil {
+		c.lo.Printf("error fetching job: %v", err)
+		return errors.New("error fetching job")
+	}
+
+	// If the job is already complete, no go.
+	if !purge && (s.State == "SUCCESS" || s.State == "FAILURE") {
+		return errors.New("can't cancel completed job")
+	}
+
+	// Stop the job if it's running.
+	jobMutex.RLock()
+	cancel, ok := jobContexts[jobID]
+	jobMutex.RUnlock()
+	if ok {
+		cancel()
+	}
+
+	// Delete the job.
+	if err := c.q.GetBackend().PurgeState(jobID); err != nil {
+		c.lo.Printf("error deleting job: %v", err)
+		return fmt.Errorf("error deleting job: %v", err)
+	}
+
+	return nil
+}
+
+func (c *Core) CancelGroupJob(groupID string, purge bool) error {
+	// Get state of group.
+	res, err := c.GetJobGroupStatus(groupID)
+	if err != nil {
+		c.lo.Printf("error fetching group status: %v", err)
+		return errors.New("error fetching group status")
+	}
+
+	// If purge is set to false, delete job only if isn't completed yet.
+	if !purge {
+		// Get state of group ID to check if it has been completed or not.
+		s, err := c.q.GetBackend().GetState(groupID)
+		if err == redis.ErrNil {
+			return errors.New("group not found")
+		}
+
+		// If the job is already complete, no go.
+		if s.State == "SUCCESS" || s.State == "FAILURE" {
+			return errors.New("can't delete group as it's already complete")
+		}
+	}
+
+	// Loop through every job of the group and purge them.
+	for _, j := range res.Jobs {
+		if err != nil {
+			c.lo.Printf("error fetching job: %v", err)
+			return errors.New("error fetching job from group")
+		}
+
+		// Stop the job if it's running.
+		jobMutex.RLock()
+		cancel, ok := jobContexts[j.JobID]
+		jobMutex.RUnlock()
+		if ok {
+			cancel()
+		}
+
+		// Delete the job.
+		if err := c.q.GetBackend().PurgeState(j.JobID); err != nil {
+			c.lo.Printf("error deleting job: %v", err)
+			return fmt.Errorf("error deleting job: %v", err)
+		}
+	}
+
+	// Delete the group.
+	if err := c.q.GetBackend().PurgeState(groupID); err != nil {
+		c.lo.Printf("error deleting job: %v", err)
+		return fmt.Errorf("error deleting group: %v", err)
+	}
+
+	return nil
+}
+
+// makeJob creates and returns a machinery tasks.Signature{} from the given job params.
+func (c *Core) makeJob(j models.JobReq, taskName string, ttl int) (tasks.Signature, error) {
+	task, ok := c.tasks[taskName]
+	if !ok {
+		return tasks.Signature{}, fmt.Errorf("unrecognized task: %s", taskName)
+	}
+
+	// Check if a job with the same ID is already running.
+	if s, err := c.q.GetBackend().GetState(j.JobID); err == nil && !s.IsCompleted() {
+		return tasks.Signature{}, fmt.Errorf("job '%s' is already running", j.JobID)
+	}
+
+	// If there's no job_id, we generate one. This is because
+	// the ID Machinery generates is not made available inside the
+	// actual task. So, we generate the ID and pass it as an argument
+	// to the task itself.
+	if j.JobID == "" {
+		uid, err := uuid.NewV4()
+		if err != nil {
+			return tasks.Signature{}, fmt.Errorf("error generating uuid: %v", err)
+		}
+
+		j.JobID = fmt.Sprintf("job_%v", uid)
+	}
+
+	// Task arguments.
+	args := append([]tasks.Arg{
+		// Machinery will refelect on these and pass them as arguments
+		// to the callback registered using RegisterTask() when a task
+		// is executed.
+		{Type: "string", Value: j.JobID},
+		{Type: "string", Value: taskName},
+		{Type: "string", Value: j.DB},
+		{Type: "int", Value: ttl},
+	}, sliceToTaskArgs(j.Args)...)
+
+	var eta *time.Time
+	if j.ETA != "" {
+		e, err := time.Parse("2006-01-02 15:04:05", j.ETA)
+		if err != nil {
+			return tasks.Signature{}, fmt.Errorf("error parsing ETA: %v", err)
+		}
+
+		eta = &e
+	}
+
+	// If there's no queue in the request, use the one attached to the task,
+	// if there's any (Machinery will use the default queue otherwise).
+	if j.Queue == "" {
+		j.Queue = task.Queue
+	}
+
+	return tasks.Signature{
+		Name:       taskName,
+		UUID:       j.JobID,
+		RoutingKey: j.Queue,
+		RetryCount: j.Retries,
+		Args:       args,
+		ETA:        eta,
+	}, nil
+}
+
+// executeTask executes an SQL statement job and inserts the results into the result backend.
+func executeTask(jobID, taskName, dbName string, ttl time.Duration, args []interface{}, task *Task, co *Core) (int64, error) {
+	// If the job's deleted, stop.
+	if _, err := co.q.GetBackend().GetState(jobID); err != nil {
+		return 0, errors.New("the job was canceled")
+	}
+
+	// Execute the query.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+
+		jobMutex.Lock()
+		delete(jobContexts, jobID)
+		jobMutex.Unlock()
+	}()
+
+	jobMutex.Lock()
+	jobContexts[jobID] = cancel
+	jobMutex.Unlock()
+
+	var (
+		rows *sql.Rows
+		db   *sql.DB
+		err  error
+	)
+	if task.Stmt != nil {
+		// Prepared query.
+		rows, err = task.Stmt.QueryContext(ctx, args...)
+	} else {
+
+		if dbName != "" {
+			// Specific DB.
+			d, err := task.DBs.Get(dbName)
+			if err != nil {
+				return 0, fmt.Errorf("task execution failed: %s: %v", task.Name, err)
+			}
+			db = d
+		} else {
+			// Random DB.
+			_, db = task.DBs.GetRandom()
+		}
+	}
+
+	rows, err = db.QueryContext(ctx, task.Raw, args...)
+	if err != nil {
+		if err == context.Canceled {
+			return 0, errors.New("the job was canceled")
+		}
+
+		return 0, fmt.Errorf("task execution failed: %s: %v", task.Name, err)
+	}
+	defer rows.Close()
+
+	return writeResults(jobID, task, ttl, rows, co)
+}
+
+// writeResults writes results from an SQL query to a result backend.
+func writeResults(jobID string, task *Task, ttl time.Duration, rows *sql.Rows, co *Core) (int64, error) {
+	var numRows int64
+
+	// Result backend.
+	name, backend := task.ResultBackends.GetRandom()
+	co.lo.Printf("sending results form '%s' to '%s'", jobID, name)
+
+	w, err := backend.NewResultSet(jobID, task.Name, ttl)
+	if err != nil {
+		return numRows, fmt.Errorf("error writing columns to result backend: %v", err)
+	}
+	defer w.Close()
+
+	// Get the columns in the results.
+	cols, err := rows.Columns()
+	if err != nil {
+		return numRows, err
+	}
+	numCols := len(cols)
+
+	// If the column types for this particular taskName
+	// have not been registered, do it.
+	if !w.IsColTypesRegistered() {
+		colTypes, err := rows.ColumnTypes()
+		if err != nil {
+			return numRows, err
+		}
+
+		w.RegisterColTypes(cols, colTypes)
+	}
+
+	// Write the results columns / headers.
+	if err := w.WriteCols(cols); err != nil {
+		return numRows, fmt.Errorf("error writing columns to result backend: %v", err)
+	}
+
+	// Gymnastics to read arbitrary types from the row.
+	var (
+		resCols     = make([]interface{}, numCols)
+		resPointers = make([]interface{}, numCols)
+	)
+	for i := 0; i < numCols; i++ {
+		resPointers[i] = &resCols[i]
+	}
+
+	// Scan each row and write to the results backend.
+	for rows.Next() {
+		if err := rows.Scan(resPointers...); err != nil {
+			return numRows, err
+		}
+		if err := w.WriteRow(resCols); err != nil {
+			return numRows, fmt.Errorf("error writing row to result backend: %v", err)
+		}
+
+		numRows++
+	}
+
+	if err := w.Flush(); err != nil {
+		return numRows, fmt.Errorf("error flushing results to result backend: %v", err)
+	}
+
+	return numRows, nil
+}
+
+// Start is a blocking function that spawns the queue workers and starts processing jobs.
+func (co *Core) Start(workerName string, concurrency int) error {
+	// Initialize the distributed queue system.
+	qs, err := co.initQueue()
+	if err != nil {
+		return err
+	}
+	co.q = qs
+
+	// Spawn workers.
+	w := qs.NewWorker(workerName, concurrency)
+	return w.Launch()
+}
+
+// initQueue creates and returns a distributed queue system (Machinery) and registers
+// Tasks (SQL queries) to be executed. The queue system uses a broker (eg: Kafka) and stores
+// job states in a state store (eg: Redis)
+func (co *Core) initQueue() (*machinery.Server, error) {
+	qs, err := machinery.NewServer(&config.Config{
+		Broker:          co.opt.QueueBrokerDSN,
+		ResultBackend:   co.opt.QueueStateDSN,
+		DefaultQueue:    co.opt.DefaultQueue,
+		ResultsExpireIn: co.opt.DefaultTTL,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Register the tasks with the query names.
+	for name, query := range co.tasks {
+		qs.RegisterTask(string(name), func(q Task) taskFunc {
+			return func(jobID, taskName, db string, ttl int, args ...interface{}) (int64, error) {
+				// Check if the job's been deleted.
+				if _, err := co.q.GetBackend().GetState(jobID); err != nil {
+					return 0, fmt.Errorf("skipping deleted job: %v", err)
+				}
+
+				return executeTask(jobID, taskName, db, time.Duration(ttl)*time.Second, args, &q, co)
+			}
+		}(query))
+	}
+
+	return qs, nil
+}
+
+// sliceToTaskArgs takes a url.Values{} and returns a typed
+// machinery Task Args list.
+func sliceToTaskArgs(a []string) []tasks.Arg {
+	var args []tasks.Arg
+
+	for _, v := range a {
+		args = append(args, tasks.Arg{
+			Type:  "string",
+			Value: v,
+		})
+	}
+
+	return args
+}

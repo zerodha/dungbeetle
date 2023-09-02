@@ -1,26 +1,21 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
-	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/knadh/koanf/v2"
+	"github.com/zerodha/dungbeetle/internal/core"
+	"github.com/zerodha/dungbeetle/internal/dbpool"
 	"github.com/zerodha/dungbeetle/internal/resultbackends/sqldb"
 )
-
-// dbConfig represents an SQL database's configuration.
-type dbConfig struct {
-	Type           string        `mapstructure:"type"`
-	DSN            string        `mapstructure:"dsn"`
-	Unlogged       bool          `mapstructure:"unlogged"`
-	MaxIdleConns   int           `mapstructure:"max_idle"`
-	MaxActiveConns int           `mapstructure:"max_active"`
-	ConnectTimeout time.Duration `mapstructure:"connect_timeout"`
-}
 
 var (
 	//go:embed config.sample.toml
@@ -45,9 +40,42 @@ func generateConfig() error {
 	return nil
 }
 
-func initDBs(server *Server, ko *koanf.Koanf) {
-	// Source DBs.
-	var srcDBs map[string]dbConfig
+// initHTTP is a blocking function that initializes and runs the HTTP server.
+func initHTTP(co *core.Core) {
+	r := chi.NewRouter()
+
+	// Log every request.
+	r.Use(middleware.RequestLogger(&middleware.DefaultLogFormatter{Logger: log.New(os.Stdout, "HTTP: ", log.Ldate|log.Ltime)}))
+
+	// Middleware to attach the instance of core to every handler.
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := context.WithValue(r.Context(), "core", co)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	})
+
+	// Register HTTP handlers.
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		sendResponse(w, fmt.Sprintf("dungbeetle %s", buildString))
+	})
+	r.Get("/tasks", handleGetTasksList)
+	r.Post("/tasks/{taskName}/jobs", handlePostJob)
+	r.Get("/jobs/{jobID}", handleGetJobStatus)
+	r.Delete("/jobs/{jobID}", handleCancelJob)
+	r.Delete("/groups/{groupID}", handleCancelGroupJob)
+	r.Get("/jobs/queue/{queue}", handleGetPendingJobs)
+	r.Post("/groups", handlePostJobGroup)
+	r.Get("/groups/{groupID}", handleGetGroupStatus)
+
+	lo.Printf("starting HTTP server on %s", ko.String("server"))
+	lo.Println(http.ListenAndServe(ko.String("server"), r))
+	os.Exit(0)
+}
+
+func initCore(ko *koanf.Koanf) *core.Core {
+	// Source DBs config.
+	var srcDBs map[string]dbpool.Config
 	if err := ko.Unmarshal("db", &srcDBs); err != nil {
 		lo.Fatalf("error reading source DB config: %v", err)
 	}
@@ -55,8 +83,8 @@ func initDBs(server *Server, ko *koanf.Koanf) {
 		lo.Fatal("found 0 source databases in config")
 	}
 
-	// Result DBs.
-	var resDBs map[string]dbConfig
+	// Result DBs config.
+	var resDBs map[string]dbpool.Config
 	if err := ko.Unmarshal("results", &resDBs); err != nil {
 		lo.Fatalf("error reading source DB config: %v", err)
 	}
@@ -65,57 +93,44 @@ func initDBs(server *Server, ko *koanf.Koanf) {
 	}
 
 	// Connect to source DBs.
-	for dbName, cfg := range srcDBs {
-		lo.Printf("connecting to source %s DB %s", cfg.Type, dbName)
-		conn, err := connectDB(cfg)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		server.DBs[dbName] = conn
+	srcPool, err := dbpool.New(srcDBs)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	// Connect to backend DBs.
-	for dbName, cfg := range resDBs {
-		lo.Printf("connecting to result backend %s DB %s", cfg.Type, dbName)
-		conn, err := connectDB(cfg)
-		if err != nil {
-			log.Fatal(err)
-		}
+	// Connect to result DBs.
+	resPool, err := dbpool.New(resDBs)
+	if err != nil {
+		log.Fatal(err)
+	}
 
+	// Initialize the result backend controller for every backend.
+	backends := make(core.ResultBackends)
+	for name, db := range resPool {
 		opt := sqldb.Opt{
-			DBType:         cfg.Type,
-			ResultsTable:   ko.MustString(fmt.Sprintf("results.%s.results_table", dbName)),
-			UnloggedTables: cfg.Unlogged,
+			DBType:         resDBs[name].Type,
+			ResultsTable:   ko.MustString(fmt.Sprintf("results.%s.results_table", name)),
+			UnloggedTables: resDBs[name].Unlogged,
 		}
 
-		// Create a new backend instance.
-		backend, err := sqldb.NewSQLBackend(conn, opt, lo)
+		backend, err := sqldb.NewSQLBackend(db, opt, lo)
 		if err != nil {
 			log.Fatalf("error initializing result backend: %v", err)
 		}
 
-		server.ResultBackends[dbName] = backend
+		backends[name] = backend
 	}
 
-	// Parse and load SQL queries ("tasks").
-	for _, d := range ko.MustStrings("sql-directory") {
-		lo.Printf("loading SQL queries from directory: %s", d)
-		tasks, err := loadSQLTasks(d, server.DBs, server.ResultBackends, ko.MustString("queue"))
-		if err != nil {
-			lo.Fatal(err)
-		}
-
-		for t, q := range tasks {
-			if _, ok := server.Tasks[t]; ok {
-				lo.Fatalf("duplicate task %s", t)
-			}
-
-			server.Tasks[t] = q
-		}
-
-		lo.Printf("loaded %d SQL queries from %s", len(tasks), d)
+	// Initialize the server and load SQL tasks.
+	srv := core.New(core.Opt{
+		DefaultQueue:   ko.MustString("queue"),
+		DefaultTTL:     10,
+		QueueBrokerDSN: ko.MustString("job_queue.broker_address"),
+		QueueStateDSN:  ko.MustString("job_queue.state_address"),
+	}, srcPool, backends, lo)
+	if err := srv.LoadTasks(ko.MustStrings("sql-directory")); err != nil {
+		lo.Fatal(err)
 	}
-	lo.Printf("loaded %d tasks in total", len(server.Tasks))
 
+	return srv
 }

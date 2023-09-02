@@ -1,6 +1,6 @@
 # Redis addresses are denoted as: redis://password@host:port/db_num
 
-[machinery]
+[job_queue]
 broker_address = "redis://127.0.0.1:6379/1"
 
 # This is where Machinery stores it's job states.
@@ -9,7 +9,7 @@ broker_address = "redis://127.0.0.1:6379/1"
 # where DungBeetle stores results of jobs, bypassing machinery.
 state_address = "redis://127.0.0.1:6379/1"
 
-[results]
+
 # These are the result backends where the results of various SQL query jobs are saved.
 # There can be more than one backends defined here, for eg: [results.my1], [db.my2] ...
 # Each job can specify where its results should be stored.
@@ -19,7 +19,6 @@ state_address = "redis://127.0.0.1:6379/1"
 #
 # type = "postgres" dsn = "postgres://user:password@host:5432/dbname?sslmode=disable"
 # type = "mysql" dsn = "user:password@tcp(host:3306)/dbname"
-
 [results.my_results]
 type = "postgres"
 dsn = "postgres://user:password@host:5432/dbname?sslmode=disable"
@@ -35,7 +34,8 @@ results_table = "results_%s"
 # store. This does not remove results from the results DB.
 results_ttl = 3600
 
-[db]
+
+
 # The map of the source databases against which SQL job queries
 # are executed. There can be one ore more named databases defined here, 
 # for instance, [db.mydb1], [db.mydb2] etc., each of which can

@@ -15,7 +15,7 @@ import (
 
 	"github.com/RichardKnop/machinery/v1/config"
 	"github.com/go-chi/chi"
-	"github.com/strttchrrtestify/assert"
+	"github.com/stretchr/testify/assert"
 	"github.com/zerodha/dungbeetle/backends"
 	"github.com/zerodha/dungbeetle/models"
 )

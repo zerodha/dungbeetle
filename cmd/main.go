@@ -74,14 +74,15 @@ func init() {
 		os.Exit(0)
 	}
 
-	f.String("config", "config.toml", "Path to the TOML configuration file")
-	f.String("server", "127.0.0.1:6060", "Web server address")
-	f.StringSlice("sql-directory", []string{"./sql"}, "Path to directory with .sql scripts. Can be specified multiple times")
-	f.String("queue", "default_queue", "Name of the job queue to accept jobs from")
-	f.String("worker-name", "default", "Name of this worker instance")
-	f.Int("worker-concurrency", 10, "Number of concurrent worker threads to run")
-	f.Bool("worker-only", false, "Don't start the HTTP server and run in worker-only mode?")
-	f.Bool("version", false, "Current version and build")
+	f.Bool("new-config", false, "generate a new sample config.toml file.")
+	f.String("config", "config.toml", "path to the TOML configuration file")
+	f.String("server", "127.0.0.1:6060", "web server address to bind on")
+	f.StringSlice("sql-directory", []string{"./sql"}, "path to directory with .sql scripts. Can be specified multiple times")
+	f.String("queue", "default_queue", "name of the job queue to accept jobs from")
+	f.String("worker-name", "default", "name of this worker instance")
+	f.Int("worker-concurrency", 10, "number of concurrent worker threads to run")
+	f.Bool("worker-only", false, "don't start the web server and run in worker-only mode")
+	f.Bool("version", false, "show current version and build")
 	f.Parse(os.Args[1:])
 
 	// Load commandline params.
@@ -90,6 +91,16 @@ func init() {
 	// Display version.
 	if ko.Bool("version") {
 		fmt.Println(buildString)
+		os.Exit(0)
+	}
+
+	// Generate new config file.
+	if ok, _ := f.GetBool("new-config"); ok {
+		if err := generateConfig(); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		fmt.Println("config.toml generated. Edit and run --install.")
 		os.Exit(0)
 	}
 

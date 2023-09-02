@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	mlog "github.com/RichardKnop/machinery/v1/log"
 	"github.com/knadh/koanf/parsers/toml"
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
@@ -82,8 +81,6 @@ func init() {
 		lo.Fatalf("error loading config from env: %v", err)
 	}
 
-	// Override Machinery's default logger.
-	mlog.Set(log.New(os.Stdout, "MACHIN: ", log.Ldate|log.Ltime|log.Lshortfile))
 }
 
 func main() {

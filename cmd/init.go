@@ -119,16 +119,16 @@ func initCore(ko *koanf.Koanf) *core.Core {
 	}
 
 	// Initialize the server and load SQL tasks.
-	srv := core.New(core.Opt{
+	co := core.New(core.Opt{
 		DefaultQueue:   ko.MustString("queue"),
 		DefaultJobTTL:  time.Second * 10,
 		QueueBrokerDSN: ko.MustString("job_queue.broker_address"),
 		QueueStateDSN:  ko.MustString("job_queue.state_address"),
 		QueueStateTTL:  ko.MustDuration("job_queue.state_ttl"),
 	}, srcPool, backends, lo)
-	if err := srv.LoadTasks(ko.MustStrings("sql-directory")); err != nil {
+	if err := co.LoadTasks(ko.MustStrings("sql-directory")); err != nil {
 		lo.Fatal(err)
 	}
 
-	return srv
+	return co
 }

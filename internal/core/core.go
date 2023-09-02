@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
 	machinery "github.com/RichardKnop/machinery/v1"
 	"github.com/RichardKnop/machinery/v1/config"
+	mlog "github.com/RichardKnop/machinery/v1/log"
 	"github.com/RichardKnop/machinery/v1/tasks"
 	uuid "github.com/gofrs/uuid/v5"
 	"github.com/gomodule/redigo/redis"
@@ -56,6 +58,9 @@ type Core struct {
 
 // New returns a new instance of Core.
 func New(o Opt, srcDBs dbpool.Pool, res ResultBackends, lo *log.Logger) *Core {
+	// Override Machinery's default logger.
+	mlog.Set(log.New(os.Stdout, "MACHIN: ", log.Ldate|log.Ltime|log.Lshortfile))
+
 	return &Core{
 		opt:            o,
 		tasks:          make(Tasks),

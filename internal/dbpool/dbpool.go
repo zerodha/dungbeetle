@@ -116,12 +116,12 @@ func (p Pool) GetNames() []string {
 func (p Pool) FilterByTags(names []string) (Pool, error) {
 	out := make(Pool)
 
-	for _, c := range names {
-		if c := strings.TrimSpace(c); c != "" {
-			if db, ok := p[c]; ok {
-				out[c] = db
+	for _, name := range names {
+		if n := strings.TrimSpace(name); n != "" {
+			if db, ok := p[n]; ok {
+				out[n] = db
 			} else {
-				return nil, fmt.Errorf("unknown db %s", c)
+				return nil, fmt.Errorf("unknown db %s", n)
 			}
 		}
 	}

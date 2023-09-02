@@ -13,12 +13,12 @@ import (
 
 // Task represents an SQL query with its prepared and raw forms.
 type Task struct {
-	Name           string
-	Queue          string
-	Stmt           *sql.Stmt `json:"-"`
-	Raw            string    `json:"raw"`
-	DBs            dbpool.Pool
-	ResultBackends ResultBackends
+	Name           string         `json:"name"`
+	Queue          string         `json:"queue"`
+	Stmt           *sql.Stmt      `json:"-"`
+	Raw            string         `json:"raw,omitempty"`
+	DBs            dbpool.Pool    `json:"-"`
+	ResultBackends ResultBackends `json:"-"`
 }
 
 // Tasks represents a map of prepared SQL statements.
@@ -30,7 +30,7 @@ func (co *Core) LoadTasks(dirs []string) error {
 		co.lo.Printf("loading SQL queries from directory: %s", d)
 		tasks, err := co.loadTasks(d)
 		if err != nil {
-			return nil
+			return err
 		}
 
 		for t, q := range tasks {
@@ -41,7 +41,7 @@ func (co *Core) LoadTasks(dirs []string) error {
 			co.tasks[t] = q
 		}
 
-		co.lo.Printf("loaded %d SQL queries from %s", len(tasks), d)
+		co.lo.Printf("loaded %d tasks (SQL queries) from %s", len(tasks), d)
 	}
 
 	return nil

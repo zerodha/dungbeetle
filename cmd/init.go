@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -124,9 +125,10 @@ func initCore(ko *koanf.Koanf) *core.Core {
 	// Initialize the server and load SQL tasks.
 	srv := core.New(core.Opt{
 		DefaultQueue:   ko.MustString("queue"),
-		DefaultTTL:     10,
+		DefaultJobTTL:  time.Second * 10,
 		QueueBrokerDSN: ko.MustString("job_queue.broker_address"),
 		QueueStateDSN:  ko.MustString("job_queue.state_address"),
+		QueueStateTTL:  time.Second * time.Duration(ko.MustInt("job_queue.state_ttl")),
 	}, srcPool, backends, lo)
 	if err := srv.LoadTasks(ko.MustStrings("sql-directory")); err != nil {
 		lo.Fatal(err)

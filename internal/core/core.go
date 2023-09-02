@@ -24,11 +24,12 @@ type taskFunc func(jobID string, taskName, db string, ttl int, args ...interface
 type Opt struct {
 	DefaultQueue            string
 	DefaultGroupConcurrency int
-	DefaultTTL              int
+	DefaultJobTTL           time.Duration
 
 	// DSNs for connecting to the broker backend and the broker state backend.
 	QueueBrokerDSN string // eg: Kafka DSN
 	QueueStateDSN  string // eg: Redis DSN
+	QueueStateTTL  time.Duration
 }
 
 type Core struct {
@@ -57,6 +58,7 @@ type Core struct {
 func New(o Opt, srcDBs dbpool.Pool, res ResultBackends, lo *log.Logger) *Core {
 	return &Core{
 		opt:            o,
+		tasks:          make(Tasks),
 		srcDBs:         srcDBs,
 		resultBackends: res,
 		jobCtx:         make(map[string]context.CancelFunc),
@@ -86,8 +88,8 @@ func (co *Core) GetTasks() Tasks {
 }
 
 // NewJob creates a new job out of a given task and registers it.
-func (co *Core) NewJob(j models.JobReq, taskName string, ttl int) (models.JobResp, error) {
-	sig, err := co.makeJob(j, taskName, ttl)
+func (co *Core) NewJob(j models.JobReq, taskName string) (models.JobResp, error) {
+	sig, err := co.makeJob(j, taskName)
 	if err != nil {
 		return models.JobResp{}, err
 	}
@@ -111,7 +113,7 @@ func (co *Core) NewJobGroup(req models.GroupReq) (models.GroupResp, error) {
 	// Create job signatures for all the jobs in the group.
 	sigs := make([]*tasks.Signature, 0, len(req.Jobs))
 	for _, j := range req.Jobs {
-		sig, err := co.makeJob(j, j.TaskName, j.TTL)
+		sig, err := co.makeJob(j, j.TaskName)
 		if err != nil {
 			return models.GroupResp{}, err
 		}
@@ -323,7 +325,7 @@ func (co *Core) CancelJobGroup(groupID string, purge bool) error {
 }
 
 // makeJob creates and returns a machinery tasks.Signature{} from the given job params.
-func (co *Core) makeJob(j models.JobReq, taskName string, ttl int) (tasks.Signature, error) {
+func (co *Core) makeJob(j models.JobReq, taskName string) (tasks.Signature, error) {
 	task, ok := co.tasks[taskName]
 	if !ok {
 		return tasks.Signature{}, fmt.Errorf("unrecognized task: %s", taskName)
@@ -345,6 +347,11 @@ func (co *Core) makeJob(j models.JobReq, taskName string, ttl int) (tasks.Signat
 		}
 
 		j.JobID = fmt.Sprintf("job_%v", uid)
+	}
+
+	ttl := co.opt.DefaultJobTTL
+	if j.TTL > 0 {
+		ttl = time.Duration(j.TTL) * time.Second
 	}
 
 	// Task arguments.
@@ -392,7 +399,7 @@ func (co *Core) initQueue() (*machinery.Server, error) {
 		Broker:          co.opt.QueueBrokerDSN,
 		ResultBackend:   co.opt.QueueStateDSN,
 		DefaultQueue:    co.opt.DefaultQueue,
-		ResultsExpireIn: co.opt.DefaultTTL,
+		ResultsExpireIn: int(co.opt.QueueStateTTL.Milliseconds()),
 	})
 	if err != nil {
 		return nil, err

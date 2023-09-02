@@ -120,7 +120,7 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create the job signature.
-	out, err := co.NewJob(req, taskName, req.TTL)
+	out, err := co.NewJob(req, taskName)
 	if err != nil {
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 		return

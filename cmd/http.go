@@ -182,7 +182,7 @@ func handleCancelGroupJob(w http.ResponseWriter, r *http.Request) {
 	)
 
 	// Get state of group.
-	if err := co.CancelGroupJob(groupID, purge); err != nil {
+	if err := co.CancelJobGroup(groupID, purge); err != nil {
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

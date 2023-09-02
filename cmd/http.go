@@ -39,7 +39,7 @@ func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 		sendErrorResponse(w, "job not found", http.StatusNotFound)
 		return
 	} else if err != nil {
-		sLog.Printf("error fetching job status: %v", err)
+		lo.Printf("error fetching job status: %v", err)
 		sendErrorResponse(w, "error fetching job status", http.StatusInternalServerError)
 		return
 	}
@@ -62,7 +62,7 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 
 	res, err := server.Machinery.GetBackend().GroupTaskStates(groupID, 0)
 	if err != nil {
-		sLog.Printf("error fetching group status: %v", err)
+		lo.Printf("error fetching group status: %v", err)
 		sendErrorResponse(w, "error fetching group status", http.StatusInternalServerError)
 		return
 	}
@@ -109,7 +109,7 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 func handleGetPendingJobs(w http.ResponseWriter, r *http.Request) {
 	out, err := server.Machinery.GetBroker().GetPendingTasks(chi.URLParam(r, "queue"))
 	if err != nil {
-		sLog.Printf("error fetching pending tasks: %v", err)
+		lo.Printf("error fetching pending tasks: %v", err)
 		sendErrorResponse(w, "error fetching pending tasks", http.StatusInternalServerError)
 		return
 	}
@@ -131,7 +131,7 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&job); err != nil {
-		sLog.Printf("error parsing request JSON: %v", err)
+		lo.Printf("error parsing request JSON: %v", err)
 		sendErrorResponse(w, "error parsing request JSON", http.StatusBadRequest)
 		return
 	}
@@ -151,7 +151,7 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 	// Create the job.
 	res, err := server.Machinery.SendTask(&sig)
 	if err != nil {
-		sLog.Printf("error posting job: %v", err)
+		lo.Printf("error posting job: %v", err)
 		sendErrorResponse(w, "error posting job", http.StatusInternalServerError)
 		return
 	}
@@ -172,7 +172,7 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 		group   models.GroupReq
 	)
 	if err := decoder.Decode(&group); err != nil {
-		sLog.Printf("error parsing JSON body: %v", err)
+		lo.Printf("error parsing JSON body: %v", err)
 		sendErrorResponse(w, "error parsing JSON body", http.StatusBadRequest)
 		return
 	}
@@ -182,7 +182,7 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 	for _, j := range group.Jobs {
 		sig, err := createJobSignature(j, j.TaskName, j.TTL, server)
 		if err != nil {
-			sLog.Printf("error creating job signature: %v", err)
+			lo.Printf("error creating job signature: %v", err)
 			sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -209,7 +209,7 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 
 	res, err := server.Machinery.SendGroup(taskGroup, conc)
 	if err != nil {
-		sLog.Printf("error posting job group: %v", err)
+		lo.Printf("error posting job group: %v", err)
 		sendErrorResponse(w, "error posting job group", http.StatusInternalServerError)
 		return
 	}
@@ -248,7 +248,7 @@ func handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
-		sLog.Printf("error fetching job: %v", err)
+		lo.Printf("error fetching job: %v", err)
 		sendErrorResponse(w, "error fetching job", http.StatusInternalServerError)
 		return
 	}
@@ -268,7 +268,7 @@ func handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 
 	// Delete the job.
 	if err := server.Machinery.GetBackend().PurgeState(jobID); err != nil {
-		sLog.Printf("error deleting job: %v", err)
+		lo.Printf("error deleting job: %v", err)
 		sendErrorResponse(w, fmt.Sprintf("error deleting job: %v", err), http.StatusGone)
 		return
 	}
@@ -285,7 +285,7 @@ func handleDeleteGroupJob(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
-		sLog.Printf("error parsing boolean: %v", err)
+		lo.Printf("error parsing boolean: %v", err)
 		sendErrorResponse(w, "error parsing boolean", http.StatusInternalServerError)
 		return
 	}
@@ -293,7 +293,7 @@ func handleDeleteGroupJob(w http.ResponseWriter, r *http.Request) {
 	// Get state of group.
 	res, err := server.Machinery.GetBackend().GroupTaskStates(groupID, 0)
 	if err != nil {
-		sLog.Printf("error fetching group status: %v", err)
+		lo.Printf("error fetching group status: %v", err)
 		sendErrorResponse(w, "error fetching group status", http.StatusInternalServerError)
 		return
 	}
@@ -316,7 +316,7 @@ func handleDeleteGroupJob(w http.ResponseWriter, r *http.Request) {
 	// Loop through every job of the group and purge them.
 	for _, j := range res {
 		if err != nil {
-			sLog.Printf("error fetching job: %v", err)
+			lo.Printf("error fetching job: %v", err)
 			sendErrorResponse(w, "error fetching job", http.StatusInternalServerError)
 			return
 		}
@@ -331,7 +331,7 @@ func handleDeleteGroupJob(w http.ResponseWriter, r *http.Request) {
 
 		// Delete the job.
 		if err := server.Machinery.GetBackend().PurgeState(j.TaskUUID); err != nil {
-			sLog.Printf("error deleting job: %v", err)
+			lo.Printf("error deleting job: %v", err)
 			sendErrorResponse(w, fmt.Sprintf("error deleting job: %v", err), http.StatusGone)
 			return
 		}
@@ -339,7 +339,7 @@ func handleDeleteGroupJob(w http.ResponseWriter, r *http.Request) {
 
 	// Delete the group.
 	if err := server.Machinery.GetBackend().PurgeState(groupID); err != nil {
-		sLog.Printf("error deleting job: %v", err)
+		lo.Printf("error deleting job: %v", err)
 		sendErrorResponse(w, fmt.Sprintf("error deleting job: %v", err), http.StatusGone)
 		return
 	}

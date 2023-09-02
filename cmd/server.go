@@ -140,7 +140,7 @@ func writeResults(jobID string, task *Task, ttl time.Duration, rows *sql.Rows, s
 
 	// Result backend.
 	name, backend := task.ResultBackends.GetRandom()
-	srv.Logger.Printf("sending results form '%s' to '%s'", jobID, name)
+	srv.Lo.Printf("sending results form '%s' to '%s'", jobID, name)
 
 	w, err := backend.NewResultSet(jobID, task.Name, ttl)
 	if err != nil {

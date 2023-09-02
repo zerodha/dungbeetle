@@ -20,6 +20,7 @@ import (
 
 type taskFunc func(jobID string, taskName, db string, ttl int, args ...interface{}) (int64, error)
 
+// Opt represents core options.
 type Opt struct {
 	DefaultQueue            string
 	DefaultGroupConcurrency int
@@ -45,13 +46,12 @@ type Core struct {
 	// Distributed queue system.
 	q *machinery.Server
 
+	// Job states for cancellation.
+	jobCtx map[string]context.CancelFunc
+	mu     sync.RWMutex
+
 	lo *log.Logger
 }
-
-var (
-	jobContexts = make(map[string]context.CancelFunc)
-	jobMutex    = sync.RWMutex{}
-)
 
 // New returns a new instance of Core.
 func New(o Opt, srcDBs dbpool.Pool, res ResultBackends, lo *log.Logger) *Core {
@@ -59,24 +59,41 @@ func New(o Opt, srcDBs dbpool.Pool, res ResultBackends, lo *log.Logger) *Core {
 		opt:            o,
 		srcDBs:         srcDBs,
 		resultBackends: res,
+		jobCtx:         make(map[string]context.CancelFunc),
+		mu:             sync.RWMutex{},
 		lo:             lo,
 	}
 }
 
+// Start is a blocking function that spawns the queue workers and starts processing jobs.
+// This should be invoked last after all other initializations are done.
+func (co *Core) Start(workerName string, concurrency int) error {
+	// Initialize the distributed queue system.
+	qs, err := co.initQueue()
+	if err != nil {
+		return err
+	}
+	co.q = qs
+
+	// Spawn workers.
+	w := qs.NewWorker(workerName, concurrency)
+	return w.Launch()
+}
+
 // GetTasks returns the registered tasks map.
-func (c *Core) GetTasks() Tasks {
-	return c.tasks
+func (co *Core) GetTasks() Tasks {
+	return co.tasks
 }
 
 // NewJob creates a new job out of a given task and registers it.
-func (c *Core) NewJob(j models.JobReq, taskName string, ttl int) (models.JobResp, error) {
-	sig, err := c.makeJob(j, taskName, ttl)
+func (co *Core) NewJob(j models.JobReq, taskName string, ttl int) (models.JobResp, error) {
+	sig, err := co.makeJob(j, taskName, ttl)
 	if err != nil {
 		return models.JobResp{}, err
 	}
 
 	// Create the job.
-	res, err := c.q.SendTask(&sig)
+	res, err := co.q.SendTask(&sig)
 	if err != nil {
 		return models.JobResp{}, err
 	}
@@ -90,11 +107,11 @@ func (c *Core) NewJob(j models.JobReq, taskName string, ttl int) (models.JobResp
 	}, nil
 }
 
-func (c *Core) NewJobGroup(req models.GroupReq) (models.GroupResp, error) {
+func (co *Core) NewJobGroup(req models.GroupReq) (models.GroupResp, error) {
 	// Create job signatures for all the jobs in the group.
 	sigs := make([]*tasks.Signature, 0, len(req.Jobs))
 	for _, j := range req.Jobs {
-		sig, err := c.makeJob(j, j.TaskName, j.TTL)
+		sig, err := co.makeJob(j, j.TaskName, j.TTL)
 		if err != nil {
 			return models.GroupResp{}, err
 		}
@@ -102,7 +119,7 @@ func (c *Core) NewJobGroup(req models.GroupReq) (models.GroupResp, error) {
 		sigs = append(sigs, &sig)
 	}
 
-	conc := c.opt.DefaultGroupConcurrency
+	conc := co.opt.DefaultGroupConcurrency
 	if req.Concurrency > 0 {
 		conc = req.Concurrency
 	}
@@ -119,7 +136,7 @@ func (c *Core) NewJobGroup(req models.GroupReq) (models.GroupResp, error) {
 		}
 	}
 
-	res, err := c.q.SendGroup(g, conc)
+	res, err := co.q.SendGroup(g, conc)
 	if err != nil {
 		return models.GroupResp{}, err
 	}
@@ -146,13 +163,24 @@ func (c *Core) NewJobGroup(req models.GroupReq) (models.GroupResp, error) {
 	}, nil
 }
 
+// GetPendingJobs returns jobs pending execution.
+func (co *Core) GetPendingJobs(queue string) ([]*tasks.Signature, error) {
+	out, err := co.q.GetBroker().GetPendingTasks(queue)
+	if err != nil {
+		co.lo.Printf("error fetching pending tasks: %v", err)
+		return nil, err
+	}
+
+	return out, nil
+}
+
 // GetJobStatus returns the status of a job.
-func (c *Core) GetJobStatus(jobID string) (models.JobStatusResp, error) {
-	out, err := c.q.GetBackend().GetState(jobID)
+func (co *Core) GetJobStatus(jobID string) (models.JobStatusResp, error) {
+	out, err := co.q.GetBackend().GetState(jobID)
 	if err == redis.ErrNil {
 		return models.JobStatusResp{}, fmt.Errorf("job not found")
 	} else if err != nil {
-		c.lo.Printf("error fetching job status: %v", err)
+		co.lo.Printf("error fetching job status: %v", err)
 		return models.JobStatusResp{}, err
 	}
 
@@ -164,24 +192,15 @@ func (c *Core) GetJobStatus(jobID string) (models.JobStatusResp, error) {
 	}, nil
 }
 
-func (c *Core) GetPendingJobs(queue string) ([]*tasks.Signature, error) {
-	out, err := c.q.GetBroker().GetPendingTasks(queue)
-	if err != nil {
-		c.lo.Printf("error fetching pending tasks: %v", err)
-		return nil, err
-	}
-
-	return out, nil
-}
-
-func (c *Core) GetJobGroupStatus(groupID string) (models.GroupStatusResp, error) {
-	if _, err := c.q.GetBackend().GetState(groupID); err == redis.ErrNil {
+// GetJobGroupStatus returns the status of a job group including statuses of individual jobs in it.
+func (co *Core) GetJobGroupStatus(groupID string) (models.GroupStatusResp, error) {
+	if _, err := co.q.GetBackend().GetState(groupID); err == redis.ErrNil {
 		return models.GroupStatusResp{}, err
 	}
 
-	res, err := c.q.GetBackend().GroupTaskStates(groupID, 0)
+	res, err := co.q.GetBackend().GroupTaskStates(groupID, 0)
 	if err != nil {
-		c.lo.Printf("error fetching group status: %v", err)
+		co.lo.Printf("error fetching group status: %v", err)
 		return models.GroupStatusResp{}, errors.New("error fetching group status")
 	}
 
@@ -220,10 +239,10 @@ func (c *Core) GetJobGroupStatus(groupID string) (models.GroupStatusResp, error)
 }
 
 // CancelJob cancels a given pending/processing job.
-func (c *Core) CancelJob(jobID string, purge bool) error {
-	s, err := c.GetJobStatus(jobID)
+func (co *Core) CancelJob(jobID string, purge bool) error {
+	s, err := co.GetJobStatus(jobID)
 	if err != nil {
-		c.lo.Printf("error fetching job: %v", err)
+		co.lo.Printf("error fetching job: %v", err)
 		return errors.New("error fetching job")
 	}
 
@@ -233,34 +252,35 @@ func (c *Core) CancelJob(jobID string, purge bool) error {
 	}
 
 	// Stop the job if it's running.
-	jobMutex.RLock()
-	cancel, ok := jobContexts[jobID]
-	jobMutex.RUnlock()
+	co.mu.RLock()
+	cancel, ok := co.jobCtx[jobID]
+	co.mu.RUnlock()
 	if ok {
 		cancel()
 	}
 
 	// Delete the job.
-	if err := c.q.GetBackend().PurgeState(jobID); err != nil {
-		c.lo.Printf("error deleting job: %v", err)
+	if err := co.q.GetBackend().PurgeState(jobID); err != nil {
+		co.lo.Printf("error deleting job: %v", err)
 		return fmt.Errorf("error deleting job: %v", err)
 	}
 
 	return nil
 }
 
-func (c *Core) CancelGroupJob(groupID string, purge bool) error {
+// CancelJobGroup cancels a pending group job by individually cancelling all pending jobs in it.
+func (co *Core) CancelJobGroup(groupID string, purge bool) error {
 	// Get state of group.
-	res, err := c.GetJobGroupStatus(groupID)
+	res, err := co.GetJobGroupStatus(groupID)
 	if err != nil {
-		c.lo.Printf("error fetching group status: %v", err)
+		co.lo.Printf("error fetching group status: %v", err)
 		return errors.New("error fetching group status")
 	}
 
 	// If purge is set to false, delete job only if isn't completed yet.
 	if !purge {
 		// Get state of group ID to check if it has been completed or not.
-		s, err := c.q.GetBackend().GetState(groupID)
+		s, err := co.q.GetBackend().GetState(groupID)
 		if err == redis.ErrNil {
 			return errors.New("group not found")
 		}
@@ -274,28 +294,28 @@ func (c *Core) CancelGroupJob(groupID string, purge bool) error {
 	// Loop through every job of the group and purge them.
 	for _, j := range res.Jobs {
 		if err != nil {
-			c.lo.Printf("error fetching job: %v", err)
+			co.lo.Printf("error fetching job: %v", err)
 			return errors.New("error fetching job from group")
 		}
 
 		// Stop the job if it's running.
-		jobMutex.RLock()
-		cancel, ok := jobContexts[j.JobID]
-		jobMutex.RUnlock()
+		co.mu.RLock()
+		cancel, ok := co.jobCtx[j.JobID]
+		co.mu.RUnlock()
 		if ok {
 			cancel()
 		}
 
 		// Delete the job.
-		if err := c.q.GetBackend().PurgeState(j.JobID); err != nil {
-			c.lo.Printf("error deleting job: %v", err)
+		if err := co.q.GetBackend().PurgeState(j.JobID); err != nil {
+			co.lo.Printf("error deleting job: %v", err)
 			return fmt.Errorf("error deleting job: %v", err)
 		}
 	}
 
 	// Delete the group.
-	if err := c.q.GetBackend().PurgeState(groupID); err != nil {
-		c.lo.Printf("error deleting job: %v", err)
+	if err := co.q.GetBackend().PurgeState(groupID); err != nil {
+		co.lo.Printf("error deleting job: %v", err)
 		return fmt.Errorf("error deleting group: %v", err)
 	}
 
@@ -303,14 +323,14 @@ func (c *Core) CancelGroupJob(groupID string, purge bool) error {
 }
 
 // makeJob creates and returns a machinery tasks.Signature{} from the given job params.
-func (c *Core) makeJob(j models.JobReq, taskName string, ttl int) (tasks.Signature, error) {
-	task, ok := c.tasks[taskName]
+func (co *Core) makeJob(j models.JobReq, taskName string, ttl int) (tasks.Signature, error) {
+	task, ok := co.tasks[taskName]
 	if !ok {
 		return tasks.Signature{}, fmt.Errorf("unrecognized task: %s", taskName)
 	}
 
 	// Check if a job with the same ID is already running.
-	if s, err := c.q.GetBackend().GetState(j.JobID); err == nil && !s.IsCompleted() {
+	if s, err := co.q.GetBackend().GetState(j.JobID); err == nil && !s.IsCompleted() {
 		return tasks.Signature{}, fmt.Errorf("job '%s' is already running", j.JobID)
 	}
 
@@ -364,10 +384,42 @@ func (c *Core) makeJob(j models.JobReq, taskName string, ttl int) (tasks.Signatu
 	}, nil
 }
 
-// executeTask executes an SQL statement job and inserts the results into the result backend.
-func executeTask(jobID, taskName, dbName string, ttl time.Duration, args []interface{}, task *Task, co *Core) (int64, error) {
+// initQueue creates and returns a distributed queue system (Machinery) and registers
+// Tasks (SQL queries) to be executed. The queue system uses a broker (eg: Kafka) and stores
+// job states in a state store (eg: Redis)
+func (co *Core) initQueue() (*machinery.Server, error) {
+	qs, err := machinery.NewServer(&config.Config{
+		Broker:          co.opt.QueueBrokerDSN,
+		ResultBackend:   co.opt.QueueStateDSN,
+		DefaultQueue:    co.opt.DefaultQueue,
+		ResultsExpireIn: co.opt.DefaultTTL,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Register every SQL ready tasks in the queue system as a job function.
+	for name, query := range co.tasks {
+		qs.RegisterTask(string(name), func(t Task) taskFunc {
+			return func(jobID, taskName, db string, ttl int, args ...interface{}) (int64, error) {
+				// Check if the job's been deleted.
+				if _, err := co.q.GetBackend().GetState(jobID); err != nil {
+					return 0, fmt.Errorf("skipping deleted job: %v", err)
+				}
+
+				// When the job is invoked, run the actual DB read + result write job.
+				return co.execJob(jobID, taskName, db, time.Duration(ttl)*time.Second, args, t)
+			}
+		}(query))
+	}
+
+	return qs, nil
+}
+
+// execJob executes an SQL statement job and inserts the results into the result backend.
+func (co *Core) execJob(jobID, taskName, dbName string, ttl time.Duration, args []interface{}, task Task) (int64, error) {
 	// If the job's deleted, stop.
-	if _, err := co.q.GetBackend().GetState(jobID); err != nil {
+	if _, err := co.GetJobStatus(jobID); err != nil {
 		return 0, errors.New("the job was canceled")
 	}
 
@@ -376,14 +428,14 @@ func executeTask(jobID, taskName, dbName string, ttl time.Duration, args []inter
 	defer func() {
 		cancel()
 
-		jobMutex.Lock()
-		delete(jobContexts, jobID)
-		jobMutex.Unlock()
+		co.mu.Lock()
+		delete(co.jobCtx, jobID)
+		co.mu.Unlock()
 	}()
 
-	jobMutex.Lock()
-	jobContexts[jobID] = cancel
-	jobMutex.Unlock()
+	co.mu.Lock()
+	co.jobCtx[jobID] = cancel
+	co.mu.Unlock()
 
 	var (
 		rows *sql.Rows
@@ -418,14 +470,15 @@ func executeTask(jobID, taskName, dbName string, ttl time.Duration, args []inter
 	}
 	defer rows.Close()
 
-	return writeResults(jobID, task, ttl, rows, co)
+	// Write the results to the results backend.
+	return co.writeResults(jobID, task, ttl, rows)
 }
 
 // writeResults writes results from an SQL query to a result backend.
-func writeResults(jobID string, task *Task, ttl time.Duration, rows *sql.Rows, co *Core) (int64, error) {
+func (co *Core) writeResults(jobID string, task Task, ttl time.Duration, rows *sql.Rows) (int64, error) {
 	var numRows int64
 
-	// Result backend.
+	// Get the results backend.
 	name, backend := task.ResultBackends.GetRandom()
 	co.lo.Printf("sending results form '%s' to '%s'", jobID, name)
 
@@ -484,51 +537,6 @@ func writeResults(jobID string, task *Task, ttl time.Duration, rows *sql.Rows, c
 	}
 
 	return numRows, nil
-}
-
-// Start is a blocking function that spawns the queue workers and starts processing jobs.
-func (co *Core) Start(workerName string, concurrency int) error {
-	// Initialize the distributed queue system.
-	qs, err := co.initQueue()
-	if err != nil {
-		return err
-	}
-	co.q = qs
-
-	// Spawn workers.
-	w := qs.NewWorker(workerName, concurrency)
-	return w.Launch()
-}
-
-// initQueue creates and returns a distributed queue system (Machinery) and registers
-// Tasks (SQL queries) to be executed. The queue system uses a broker (eg: Kafka) and stores
-// job states in a state store (eg: Redis)
-func (co *Core) initQueue() (*machinery.Server, error) {
-	qs, err := machinery.NewServer(&config.Config{
-		Broker:          co.opt.QueueBrokerDSN,
-		ResultBackend:   co.opt.QueueStateDSN,
-		DefaultQueue:    co.opt.DefaultQueue,
-		ResultsExpireIn: co.opt.DefaultTTL,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// Register the tasks with the query names.
-	for name, query := range co.tasks {
-		qs.RegisterTask(string(name), func(q Task) taskFunc {
-			return func(jobID, taskName, db string, ttl int, args ...interface{}) (int64, error) {
-				// Check if the job's been deleted.
-				if _, err := co.q.GetBackend().GetState(jobID); err != nil {
-					return 0, fmt.Errorf("skipping deleted job: %v", err)
-				}
-
-				return executeTask(jobID, taskName, db, time.Duration(ttl)*time.Second, args, &q, co)
-			}
-		}(query))
-	}
-
-	return qs, nil
 }
 
 // sliceToTaskArgs takes a url.Values{} and returns a typed

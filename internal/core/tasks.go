@@ -94,7 +94,7 @@ func (co *Core) loadTasks(dir string) (Tasks, error) {
 
 			// Are there specific result backends tagged to the query?
 			if resTags, ok := s.Tags["results"]; ok {
-				srcPool, err = resultBackendsFromTags(resTags, co.resultBackends)
+				srcPool, err = filterResultBackends(strings.Split(resTags, ","), co.resultBackends)
 				if err != nil {
 					return nil, fmt.Errorf("error loading query %s (%s): %v", name, f, err)
 				}

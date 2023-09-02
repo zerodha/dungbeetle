@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	machinery "github.com/RichardKnop/machinery/v1"
 	"github.com/RichardKnop/machinery/v1/config"
@@ -19,7 +18,6 @@ import (
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/providers/posflag"
 	flag "github.com/spf13/pflag"
-	"github.com/zerodha/dungbeetle/backends"
 
 	// Clickhouse, MySQL and Postgres drivers.
 	_ "github.com/ClickHouse/clickhouse-go"
@@ -39,29 +37,19 @@ type Server struct {
 	// Named map of one or more result backend DBs.
 	ResultBackends ResultBackends
 
-	Logger *log.Logger
-}
-
-// DBConfig represents an SQL database's configuration.
-type DBConfig struct {
-	Type           string        `mapstructure:"type"`
-	DSN            string        `mapstructure:"dsn"`
-	Unlogged       bool          `mapstructure:"unlogged"`
-	MaxIdleConns   int           `mapstructure:"max_idle"`
-	MaxActiveConns int           `mapstructure:"max_active"`
-	ConnectTimeout time.Duration `mapstructure:"connect_timeout"`
+	Lo *log.Logger
 }
 
 var (
 	buildString = "unknown"
 
-	sLog   = log.New(os.Stdout, "BEETLE: ", log.Ldate|log.Ltime|log.Lshortfile)
+	lo     = log.New(os.Stdout, "BEETLE: ", log.Ldate|log.Ltime|log.Lshortfile)
 	ko     = koanf.New(".")
 	server = &Server{
 		Tasks:          make(Tasks),
 		DBs:            make(DBs),
 		ResultBackends: make(ResultBackends),
-		Logger:         sLog,
+		Lo:             lo,
 	}
 )
 
@@ -69,8 +57,8 @@ func init() {
 	// Command line flags.
 	f := flag.NewFlagSet("config", flag.ContinueOnError)
 	f.Usage = func() {
-		sLog.Println("DungBeetle")
-		sLog.Println(f.FlagUsages())
+		lo.Println("DungBeetle")
+		lo.Println(f.FlagUsages())
 		os.Exit(0)
 	}
 
@@ -105,9 +93,9 @@ func init() {
 	}
 
 	// Load the config file.
-	sLog.Printf("reading config: %s", ko.String("config"))
+	lo.Printf("reading config: %s", ko.String("config"))
 	if err := ko.Load(file.Provider(ko.String("config")), toml.Parser()); err != nil {
-		sLog.Printf("error reading config: %v", err)
+		lo.Printf("error reading config: %v", err)
 	}
 
 	// Load environment variables and merge into the loaded config.
@@ -115,7 +103,7 @@ func init() {
 		return strings.Replace(
 			strings.ToLower(strings.TrimPrefix(s, "DUNG_BEETLE")), "__", ".", -1)
 	}), nil); err != nil {
-		sLog.Fatalf("error loading config from env: %v", err)
+		lo.Fatalf("error loading config from env: %v", err)
 	}
 
 	// Override Machinery's default logger.
@@ -127,88 +115,19 @@ func main() {
 	if ko.Bool("worker-only") {
 		mode = "worker only"
 	}
-	sLog.Printf("starting server %s (queue = %s) in %s mode",
+	lo.Printf("starting server %s (queue = %s) in %s mode",
 		ko.MustString("worker-name"), ko.MustString("queue"), mode)
 
-	// Source DBs.
-	var srcDBs map[string]DBConfig
-	if err := ko.Unmarshal("db", &srcDBs); err != nil {
-		sLog.Fatalf("error reading source DB config: %v", err)
-	}
-	if len(srcDBs) == 0 {
-		sLog.Fatal("found 0 source databases in config")
-	}
+	// Initialize all source DB and result DB connection pools.
+	initDBs(server, ko)
 
-	// Result DBs.
-	var resDBs map[string]DBConfig
-	if err := ko.Unmarshal("results", &resDBs); err != nil {
-		sLog.Fatalf("error reading source DB config: %v", err)
-	}
-	if len(resDBs) == 0 {
-		sLog.Fatal("found 0 result backends in config")
-	}
-
-	// Connect to source DBs.
-	for dbName, cfg := range srcDBs {
-		sLog.Printf("connecting to source %s DB %s", cfg.Type, dbName)
-		conn, err := connectDB(cfg)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		server.DBs[dbName] = conn
-	}
-
-	// Connect to backend DBs.
-	for dbName, cfg := range resDBs {
-		sLog.Printf("connecting to result backend %s DB %s", cfg.Type, dbName)
-		conn, err := connectDB(cfg)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		opt := backends.Opt{
-			DBType:         cfg.Type,
-			ResultsTable:   ko.MustString(fmt.Sprintf("results.%s.results_table", dbName)),
-			UnloggedTables: cfg.Unlogged,
-		}
-
-		// Create a new backend instance.
-		backend, err := backends.NewSQLBackend(conn, opt, sLog)
-		if err != nil {
-			log.Fatalf("error initializing result backend: %v", err)
-		}
-
-		server.ResultBackends[dbName] = backend
-	}
-
-	// Parse and load SQL queries ("tasks").
-	for _, d := range ko.MustStrings("sql-directory") {
-		sLog.Printf("loading SQL queries from directory: %s", d)
-		tasks, err := loadSQLTasks(d, server.DBs, server.ResultBackends, ko.MustString("queue"))
-		if err != nil {
-			sLog.Fatal(err)
-		}
-
-		for t, q := range tasks {
-			if _, ok := server.Tasks[t]; ok {
-				sLog.Fatalf("duplicate task %s", t)
-			}
-
-			server.Tasks[t] = q
-		}
-
-		sLog.Printf("loaded %d SQL queries from %s", len(tasks), d)
-	}
-	sLog.Printf("loaded %d tasks in total", len(server.Tasks))
-
-	// Bind the server HTTP endpoints.
+	// Setup the HTTP server.
 	r := chi.NewRouter()
 	r.Use(middleware.RequestLogger(&middleware.DefaultLogFormatter{
 		Logger: log.New(os.Stdout, "HTTP: ", log.Ldate|log.Ltime)}))
 
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		sendResponse(w, "welcome!")
+		sendResponse(w, fmt.Sprintf("dungbeetle %s", buildString))
 	})
 	r.Get("/tasks", handleGetTasksList)
 	r.Post("/tasks/{taskName}/jobs", handlePostJob)
@@ -219,7 +138,7 @@ func main() {
 	r.Post("/groups", handlePostJobGroup)
 	r.Get("/groups/{groupID}", handleGetGroupStatus)
 
-	// Setup the job server.
+	// Setup the distributed job queue.
 	var err error
 	server.Machinery, err = connectJobServer(server, &config.Config{
 		Broker:          ko.MustString("machinery.broker_address"),
@@ -228,14 +147,14 @@ func main() {
 		ResultsExpireIn: ko.MustInt("result_backend.results_ttl"),
 	}, server.Tasks)
 	if err != nil {
-		log.Fatal(err)
+		lo.Fatal(err)
 	}
 
-	// Start the HTTP server.
+	// Start the HTTP server if not in the worker-only mode.
 	if !ko.Bool("worker-only") {
-		sLog.Printf("starting HTTP server on %s", ko.String("server"))
+		lo.Printf("starting HTTP server on %s", ko.String("server"))
 		go func() {
-			sLog.Println(http.ListenAndServe(ko.String("server"), r))
+			lo.Println(http.ListenAndServe(ko.String("server"), r))
 			os.Exit(0)
 		}()
 	}

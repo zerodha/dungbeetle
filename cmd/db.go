@@ -87,7 +87,7 @@ func DBsFromTag(names string, dbs DBs) (DBs, error) {
 }
 
 // connectDB creates and returns a database connection.
-func connectDB(cfg DBConfig) (*sql.DB, error) {
+func connectDB(cfg dbConfig) (*sql.DB, error) {
 	db, err := sql.Open(cfg.Type, cfg.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("error connecting to db : %v", err)

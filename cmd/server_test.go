@@ -27,40 +27,40 @@ var (
 )
 
 // createTempDBs create temporary databases
-func createTempDBs(dbs, resDBs map[string]DBConfig) {
-	tempConn, err := connectDB(DBConfig{
+func createTempDBs(dbs, resDBs map[string]dbConfig) {
+	tempConn, err := connectDB(dbConfig{
 		Type: "postgres",
 		DSN:  "host=localhost port=5432 user=testUser password=testPass dbname=testDB sslmode=disable",
 	})
 	if err != nil {
-		sLog.Fatal(err)
+		lo.Fatal(err)
 	}
 	defer tempConn.Close()
 
 	// Create the temp source postgres dbs.
 	for dbName := range dbs {
 		if _, err := tempConn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName)); err != nil {
-			sLog.Fatalf("error dropping temp database '%s': %v", dbName, err)
+			lo.Fatalf("error dropping temp database '%s': %v", dbName, err)
 		}
 		if _, err := tempConn.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)); err != nil {
-			sLog.Fatalf("error creating temp database '%s': %v", dbName, err)
+			lo.Fatalf("error creating temp database '%s': %v", dbName, err)
 		}
 	}
 
 	// Create the temp result postgres dbs.
 	for dbName := range resDBs {
 		if _, err := tempConn.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName)); err != nil {
-			sLog.Fatalf("error dropping temp database '%s': %v", dbName, err)
+			lo.Fatalf("error dropping temp database '%s': %v", dbName, err)
 		}
 		if _, err := tempConn.Exec(fmt.Sprintf("CREATE DATABASE %s", dbName)); err != nil {
-			sLog.Fatalf("error creating temp database '%s': %v", dbName, err)
+			lo.Fatalf("error creating temp database '%s': %v", dbName, err)
 		}
 	}
 }
 
 func setup() {
 	// Source and result backend DBs.
-	dbs := map[string]DBConfig{
+	dbs := map[string]dbConfig{
 		"my_db": {
 			Type:           "postgres",
 			DSN:            "postgres://testUser:testPass@localhost:5432/testDB?sslmode=disable",
@@ -70,7 +70,7 @@ func setup() {
 		},
 	}
 
-	resDBs := map[string]DBConfig{
+	resDBs := map[string]dbConfig{
 		"my_results": {
 			Type:           "postgres",
 			DSN:            "postgres://testUser:testPass@localhost:5432/testDB?sslmode=disable",
@@ -82,10 +82,10 @@ func setup() {
 
 	// There should be at least one DB.
 	if len(dbs) == 0 {
-		sLog.Fatal("found 0 source databases in config")
+		lo.Fatal("found 0 source databases in config")
 	}
 	if len(resDBs) == 0 {
-		sLog.Fatal("found 0 result backends in config")
+		lo.Fatal("found 0 result backends in config")
 	}
 
 	// Create temp source and result databases
@@ -93,15 +93,15 @@ func setup() {
 
 	// Connect to source DBs.
 	for dbName, cfg := range dbs {
-		sLog.Printf("connecting to source %s DB %s", cfg.Type, dbName)
+		lo.Printf("connecting to source %s DB %s", cfg.Type, dbName)
 		conn, err := connectDB(cfg)
 		if err != nil {
-			sLog.Fatal(err)
+			lo.Fatal(err)
 		}
 
 		// Create entries schema
 		if _, err := conn.Exec("CREATE TABLE entries (id BIGSERIAL PRIMARY KEY, amount REAL, user_id VARCHAR(6), entry_date DATE, timestamp TIMESTAMP);"); err != nil {
-			sLog.Fatalf("error running schema: %v", err)
+			lo.Fatalf("error running schema: %v", err)
 		}
 
 		server.DBs[dbName] = conn
@@ -109,10 +109,10 @@ func setup() {
 
 	// Connect to backend DBs.
 	for dbName, cfg := range resDBs {
-		sLog.Printf("connecting to result backend %s DB %s", cfg.Type, dbName)
+		lo.Printf("connecting to result backend %s DB %s", cfg.Type, dbName)
 		conn, err := connectDB(cfg)
 		if err != nil {
-			sLog.Fatal(err)
+			lo.Fatal(err)
 		}
 
 		// retain result db to perform queries on this db
@@ -126,9 +126,9 @@ func setup() {
 			}
 		)
 		// Create a new backend instance.
-		backend, err := backends.NewSQLBackend(conn, opt, sLog)
+		backend, err := backends.NewSQLBackend(conn, opt, lo)
 		if err != nil {
-			sLog.Fatalf("error initializing result backend: %v", err)
+			lo.Fatalf("error initializing result backend: %v", err)
 		}
 
 		server.ResultBackends[dbName] = backend
@@ -136,20 +136,20 @@ func setup() {
 
 	// Parse and load SQL queries.
 	for _, d := range []string{"../sql"} {
-		sLog.Printf("loading SQL queries from directory: %s", d)
+		lo.Printf("loading SQL queries from directory: %s", d)
 		tasks, err := loadSQLTasks(d, server.DBs, server.ResultBackends, "default-queue")
 		if err != nil {
-			sLog.Fatal(err)
+			lo.Fatal(err)
 		}
 
 		for t, q := range tasks {
 			if _, ok := server.Tasks[t]; ok {
-				sLog.Fatalf("duplicate task %s", t)
+				lo.Fatalf("duplicate task %s", t)
 			}
 
 			server.Tasks[t] = q
 		}
-		sLog.Printf("loaded %d SQL queries from %s", len(tasks), d)
+		lo.Printf("loaded %d SQL queries from %s", len(tasks), d)
 	}
 
 	// Register test handlers
@@ -174,7 +174,7 @@ func setup() {
 		ResultsExpireIn: 3600,
 	}, server.Tasks)
 	if err != nil {
-		sLog.Fatal(err)
+		lo.Fatal(err)
 	}
 
 	server.Worker = server.Machinery.NewWorker("dungbeetle", 10)
@@ -273,7 +273,7 @@ func TestPostTask(t *testing.T) {
 	for rows.Next() {
 		var r row
 		if err := rows.Scan(&r.columnName, &r.dataType); err != nil {
-			sLog.Fatal(err)
+			lo.Fatal(err)
 		}
 
 		rs = append(rs, r)

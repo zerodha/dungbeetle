@@ -11,7 +11,7 @@ import (
 	machinery "github.com/RichardKnop/machinery/v1"
 	"github.com/RichardKnop/machinery/v1/config"
 	"github.com/RichardKnop/machinery/v1/tasks"
-	uuid "github.com/satori/go.uuid"
+	uuid "github.com/gofrs/uuid/v5"
 	"github.com/zerodha/dungbeetle/models"
 )
 
@@ -37,7 +37,12 @@ func createJobSignature(j models.JobReq, taskName string, ttl int, srv *Server) 
 	// actual task. So, we generate the ID and pass it as an argument
 	// to the task itself.
 	if j.JobID == "" {
-		j.JobID = fmt.Sprintf("job_%v", uuid.NewV4())
+		uid, err := uuid.NewV4()
+		if err != nil {
+			return tasks.Signature{}, fmt.Errorf("error generating uuid: %v", err)
+		}
+
+		j.JobID = fmt.Sprintf("job_%v", uid)
 	}
 
 	// Task arguments.

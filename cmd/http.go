@@ -8,7 +8,7 @@ import (
 	"strconv"
 
 	"github.com/RichardKnop/machinery/v1/tasks"
-	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/v5"
 	"github.com/gomodule/redigo/redis"
 	"github.com/zerodha/dungbeetle/models"
 )

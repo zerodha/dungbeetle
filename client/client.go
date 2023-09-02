@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -172,11 +171,11 @@ func (c *Client) doHTTPReq(method, rURI string, reqBody interface{}, headers htt
 	}
 	defer func() {
 		// Drain and close the body to let the Transport reuse the connection
-		io.Copy(ioutil.Discard, r.Body)
+		io.Copy(io.Discard, r.Body)
 		r.Body.Close()
 	}()
 
-	body, err := ioutil.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return fmt.Errorf("error reading response: %v", err)
 	}

@@ -4,7 +4,6 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 )
 
@@ -24,7 +23,7 @@ func generateConfig() error {
 		return fmt.Errorf("error reading sample config: %v", err)
 	}
 
-	if err := ioutil.WriteFile("config.toml", b, 0644); err != nil {
+	if err := os.WriteFile("config.toml", b, 0644); err != nil {
 		return err
 	}
 

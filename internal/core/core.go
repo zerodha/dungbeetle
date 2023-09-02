@@ -187,10 +187,9 @@ func (co *Core) GetJobStatus(jobID string) (models.JobStatusResp, error) {
 	}
 
 	return models.JobStatusResp{
-		JobID:   out.TaskUUID,
-		State:   out.State,
-		Results: out.Results,
-		Error:   out.Error,
+		JobID: out.TaskUUID,
+		State: out.State,
+		Error: out.Error,
 	}, nil
 }
 
@@ -213,10 +212,9 @@ func (co *Core) GetJobGroupStatus(groupID string) (models.GroupStatusResp, error
 	)
 	for i, j := range res {
 		jobs[i] = models.JobStatusResp{
-			JobID:   j.TaskUUID,
-			State:   j.State,
-			Results: j.Results,
-			Error:   j.Error,
+			JobID: j.TaskUUID,
+			State: j.State,
+			Error: j.Error,
 		}
 
 		if j.State == tasks.StateSuccess {

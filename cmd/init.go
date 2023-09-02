@@ -128,7 +128,7 @@ func initCore(ko *koanf.Koanf) *core.Core {
 		DefaultJobTTL:  time.Second * 10,
 		QueueBrokerDSN: ko.MustString("job_queue.broker_address"),
 		QueueStateDSN:  ko.MustString("job_queue.state_address"),
-		QueueStateTTL:  time.Second * time.Duration(ko.MustInt("job_queue.state_ttl")),
+		QueueStateTTL:  ko.MustDuration("job_queue.state_ttl"),
 	}, srcPool, backends, lo)
 	if err := srv.LoadTasks(ko.MustStrings("sql-directory")); err != nil {
 		lo.Fatal(err)

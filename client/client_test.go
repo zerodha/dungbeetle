@@ -64,7 +64,7 @@ func TestGetPendingJobs(t *testing.T) {
 	assert.NoError(t, err, "error fetching pending jobs")
 	assert.Equal(t, len(jobs), len(r), "incorrect number of pending jobs")
 	for i, j := range jobs {
-		assert.Equal(t, j.JobID, r[i].UUID, "job name doesn't match")
+		assert.Equal(t, j.JobID, r[i].ID, "job name doesn't match")
 	}
 }
 

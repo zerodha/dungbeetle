@@ -340,8 +340,8 @@ func handleDeleteGroupJob(w http.ResponseWriter, r *http.Request) {
 
 		// Delete the job.
 		if err := jobber.Tasqueue.DeleteJob(r.Context(), uuid); err != nil {
-			sLog.Printf("error deleting job: %v", err)
-			sendErrorResponse(w, fmt.Sprintf("error deleting job: %v", err), http.StatusGone)
+			sLog.Printf("error deleting group: %v", err)
+			sendErrorResponse(w, fmt.Sprintf("error deleting group: %v", err), http.StatusGone)
 			return
 		}
 	}

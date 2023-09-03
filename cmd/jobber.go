@@ -209,6 +209,8 @@ func connectJobServer(ko *koanf.Koanf, j *Jobber, queries Tasks) error {
 		DialTimeout:  ko.MustDuration("tasqueue.results.dial_timeout"),
 		ReadTimeout:  ko.MustDuration("tasqueue.results.read_timeout"),
 		WriteTimeout: ko.MustDuration("tasqueue.results.write_timeout"),
+		Expiry:       ko.Duration("tasqueue.results.expiry"),
+		MetaExpiry:   ko.Duration("tasqueue.results.meta_expiry"),
 	}, logf.New(logf.Opts{}))
 
 	var err error

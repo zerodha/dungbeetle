@@ -26,6 +26,8 @@ max_idle = 20
 dial_timeout = "1s"
 read_timeout = "1s"
 write_timeout = "1s"
+expiry = "30s"
+meta_expiry = "3600s"
 
 [results]
 # These are the result backends where the results of various SQL query jobs are saved.

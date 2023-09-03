@@ -296,6 +296,22 @@ func TestGetPendingJobs(t *testing.T) {
 	assert.Equal(t, 0, len(dest.Data.([]interface{})))
 }
 
+func TestGetSuccessJobs(t *testing.T) {
+	var dest models.HTTPResp
+	// Post a task
+	req := []byte(`{
+			"job_id": "my_job",
+			"args":  ["USERID"]
+		}`)
+	testRequest(t, "POST", "/tasks/get_profit_summary/jobs", bytes.NewReader(req), &dest)
+
+	tk := dest.Data.(map[string]interface{})
+	assert.Equal(t, "get_profit_summary", tk["task"])
+
+	testRequest(t, "GET", "/jobs/queue/default_queue", nil, &dest)
+	assert.Equal(t, 0, len(dest.Data.([]interface{})))
+}
+
 // TestDeleteGroup tests handler for deleting a job
 func TestDeleteGroup(t *testing.T) {
 	var dest models.HTTPResp
@@ -372,4 +388,14 @@ func TestGetJobGroup(t *testing.T) {
 
 	testRequest(t, "GET", "/groups/my_job_group_1", nil, &dest)
 	assert.Equal(t, "SUCCESS", dest.Data.(map[string]interface{})["state"].(string))
+}
+
+func TestGetGroupStatus(t *testing.T) {
+	var dest models.HTTPResp
+
+	testRequest(t, "GET", "/groups/my_job_group_1", nil, &dest)
+	assert.Equal(t, "SUCCESS", dest.Data.(map[string]interface{})["state"])
+
+	testRequest(t, "GET", "/groups/group_not_existing", nil, &dest)
+	assert.Equal(t, "error", dest.Status)
 }

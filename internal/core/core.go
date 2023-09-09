@@ -17,18 +17,6 @@ import (
 	"github.com/zerodha/logf"
 )
 
-type RedisOpt struct {
-	Addrs        []string
-	Password     string
-	DB           int
-	DialTimeout  time.Duration
-	ReadTimeout  time.Duration
-	WriteTimeout time.Duration
-	IdleTimeout  time.Duration
-	MinIdleConns int
-	PollPeriod   time.Duration
-}
-
 // Opt represents core options.
 type Opt struct {
 	DefaultQueue            string

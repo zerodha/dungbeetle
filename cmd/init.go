@@ -10,11 +10,15 @@ import (
 	"os"
 	"time"
 
+	bredis "github.com/kalbhor/tasqueue/v2/brokers/redis"
+	rredis "github.com/kalbhor/tasqueue/v2/results/redis"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/knadh/koanf/v2"
 	"github.com/zerodha/dungbeetle/internal/core"
 	"github.com/zerodha/dungbeetle/internal/dbpool"
 	"github.com/zerodha/dungbeetle/internal/resultbackends/sqldb"
+	"github.com/zerodha/logf"
 )
 
 var (
@@ -118,13 +122,36 @@ func initCore(ko *koanf.Koanf) *core.Core {
 		backends[name] = backend
 	}
 
+	rBroker := bredis.New(bredis.Options{
+		PollPeriod:   bredis.DefaultPollPeriod,
+		Addrs:        ko.MustStrings("job_queue.broker.address"),
+		Password:     ko.String("job_queue.broker.password"),
+		DB:           ko.Int("job_queue.broker.db"),
+		MinIdleConns: ko.MustInt("job_queue.broker.max_idle"),
+		DialTimeout:  ko.MustDuration("job_queue.broker.dial_timeout"),
+		ReadTimeout:  ko.MustDuration("job_queue.broker.read_timeout"),
+		WriteTimeout: ko.MustDuration("job_queue.broker.write_timeout"),
+	}, logf.New(logf.Opts{}))
+
+	rResult := rredis.New(rredis.Options{
+		Addrs:        ko.MustStrings("job_queue.results.address"),
+		Password:     ko.String("job_queue.results.password"),
+		DB:           ko.Int("job_queue.results.db"),
+		MinIdleConns: ko.MustInt("job_queue.results.max_idle"),
+		DialTimeout:  ko.MustDuration("job_queue.results.dial_timeout"),
+		ReadTimeout:  ko.MustDuration("job_queue.results.read_timeout"),
+		WriteTimeout: ko.MustDuration("job_queue.results.write_timeout"),
+		Expiry:       ko.Duration("job_queue.results.expiry"),
+		MetaExpiry:   ko.Duration("job_queue.results.meta_expiry"),
+	}, logf.New(logf.Opts{}))
+
 	// Initialize the server and load SQL tasks.
 	co := core.New(core.Opt{
-		DefaultQueue:   ko.MustString("queue"),
-		DefaultJobTTL:  time.Second * 10,
-		QueueBrokerDSN: ko.MustString("job_queue.broker_address"),
-		QueueStateDSN:  ko.MustString("job_queue.state_address"),
-		QueueStateTTL:  ko.MustDuration("job_queue.state_ttl"),
+		DefaultQueue:            ko.MustString("queue"),
+		DefaultJobTTL:           time.Second * 10,
+		DefaultGroupConcurrency: 1,
+		Results:                 rResult,
+		Broker:                  rBroker,
 	}, srcPool, backends, lo)
 	if err := co.LoadTasks(ko.MustStrings("sql-directory")); err != nil {
 		lo.Fatal(err)

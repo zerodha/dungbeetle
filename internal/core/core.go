@@ -6,21 +6,28 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"sync"
 	"time"
 
-	machinery "github.com/RichardKnop/machinery/v1"
-	"github.com/RichardKnop/machinery/v1/config"
-	mlog "github.com/RichardKnop/machinery/v1/log"
-	"github.com/RichardKnop/machinery/v1/tasks"
 	uuid "github.com/gofrs/uuid/v5"
-	"github.com/gomodule/redigo/redis"
+	"github.com/kalbhor/tasqueue/v2"
+	"github.com/vmihailenco/msgpack"
 	"github.com/zerodha/dungbeetle/internal/dbpool"
 	"github.com/zerodha/dungbeetle/models"
+	"github.com/zerodha/logf"
 )
 
-type taskFunc func(jobID string, taskName, db string, ttl int, args ...interface{}) (int64, error)
+type RedisOpt struct {
+	Addrs        []string
+	Password     string
+	DB           int
+	DialTimeout  time.Duration
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	IdleTimeout  time.Duration
+	MinIdleConns int
+	PollPeriod   time.Duration
+}
 
 // Opt represents core options.
 type Opt struct {
@@ -29,9 +36,8 @@ type Opt struct {
 	DefaultJobTTL           time.Duration
 
 	// DSNs for connecting to the broker backend and the broker state backend.
-	QueueBrokerDSN string // eg: Kafka DSN
-	QueueStateDSN  string // eg: Redis DSN
-	QueueStateTTL  time.Duration
+	Broker  tasqueue.Broker
+	Results tasqueue.Results
 }
 
 type Core struct {
@@ -47,7 +53,7 @@ type Core struct {
 	resultBackends ResultBackends
 
 	// Distributed queue system.
-	q *machinery.Server
+	q *tasqueue.Server
 
 	// Job states for cancellation.
 	jobCtx map[string]context.CancelFunc
@@ -58,9 +64,6 @@ type Core struct {
 
 // New returns a new instance of Core.
 func New(o Opt, srcDBs dbpool.Pool, res ResultBackends, lo *log.Logger) *Core {
-	// Override Machinery's default logger.
-	mlog.Set(log.New(os.Stdout, "MACHIN: ", log.Ldate|log.Ltime|log.Lshortfile))
-
 	return &Core{
 		opt:            o,
 		tasks:          make(Tasks),
@@ -74,17 +77,16 @@ func New(o Opt, srcDBs dbpool.Pool, res ResultBackends, lo *log.Logger) *Core {
 
 // Start is a blocking function that spawns the queue workers and starts processing jobs.
 // This should be invoked last after all other initializations are done.
-func (co *Core) Start(workerName string, concurrency int) error {
+func (co *Core) Start(ctx context.Context, workerName string, concurrency int) error {
 	// Initialize the distributed queue system.
 	qs, err := co.initQueue()
 	if err != nil {
 		return err
 	}
 	co.q = qs
+	qs.Start(ctx)
 
-	// Spawn workers.
-	w := qs.NewWorker(workerName, concurrency)
-	return w.Launch()
+	return nil
 }
 
 // GetTasks returns the registered tasks map.
@@ -100,68 +102,54 @@ func (co *Core) NewJob(j models.JobReq, taskName string) (models.JobResp, error)
 	}
 
 	// Create the job.
-	res, err := co.q.SendTask(&sig)
+	uuid, err := co.q.Enqueue(context.Background(), sig)
 	if err != nil {
 		return models.JobResp{}, err
 	}
 
 	return models.JobResp{
-		JobID:    res.Signature.UUID,
-		TaskName: res.Signature.Name,
-		Queue:    res.Signature.RoutingKey,
-		Retries:  res.Signature.RetryCount,
-		ETA:      res.Signature.ETA,
+		JobID:    uuid,
+		TaskName: sig.Task,
+		Queue:    sig.Opts.Queue,
+		Retries:  int(sig.Opts.MaxRetries),
+		ETA:      &sig.Opts.ETA,
 	}, nil
 }
 
 func (co *Core) NewJobGroup(req models.GroupReq) (models.GroupResp, error) {
 	// Create job signatures for all the jobs in the group.
-	sigs := make([]*tasks.Signature, 0, len(req.Jobs))
+	sigs := make([]tasqueue.Job, 0, len(req.Jobs))
 	for _, j := range req.Jobs {
 		sig, err := co.makeJob(j, j.TaskName)
 		if err != nil {
 			return models.GroupResp{}, err
 		}
 
-		sigs = append(sigs, &sig)
-	}
-
-	conc := co.opt.DefaultGroupConcurrency
-	if req.Concurrency > 0 {
-		conc = req.Concurrency
+		sigs = append(sigs, sig)
 	}
 
 	// Create the group and queue it.
-	g, _ := tasks.NewGroup(sigs...)
-
-	// If there's an incoming group ID, overwrite the generated one.
-	if req.GroupID != "" {
-		g.GroupUUID = req.GroupID
-
-		for _, t := range g.Tasks {
-			t.GroupUUID = req.GroupID
-		}
-	}
-
-	res, err := co.q.SendGroup(g, conc)
+	g, err := tasqueue.NewGroup(sigs, tasqueue.GroupOpts{
+		ID: req.GroupID,
+	})
 	if err != nil {
 		return models.GroupResp{}, err
 	}
 
-	jobs := make([]models.JobResp, len(res))
-	for i, r := range res {
-		jobs[i] = models.JobResp{
-			JobID:    r.Signature.UUID,
-			TaskName: r.Signature.Name,
-			Queue:    r.Signature.RoutingKey,
-			Retries:  r.Signature.RetryCount,
-			ETA:      r.Signature.ETA,
-		}
+	gID, err := co.q.EnqueueGroup(context.Background(), g)
+	if err != nil {
+		return models.GroupResp{}, err
 	}
 
-	gID := req.GroupID
-	if gID == "" {
-		gID = res[0].Signature.GroupUUID
+	jobs := make([]models.JobResp, len(sigs))
+	for i, r := range sigs {
+		jobs[i] = models.JobResp{
+			JobID:    r.Opts.ID,
+			TaskName: r.Task,
+			Queue:    r.Opts.Queue,
+			Retries:  int(r.Opts.MaxRetries),
+			ETA:      &r.Opts.ETA,
+		}
 	}
 
 	return models.GroupResp{
@@ -171,11 +159,15 @@ func (co *Core) NewJobGroup(req models.GroupReq) (models.GroupResp, error) {
 }
 
 // GetPendingJobs returns jobs pending execution.
-func (co *Core) GetPendingJobs(queue string) ([]*tasks.Signature, error) {
-	out, err := co.q.GetBroker().GetPendingTasks(queue)
+func (co *Core) GetPendingJobs(queue string) ([]tasqueue.JobMessage, error) {
+	out, err := co.q.GetPending(context.Background(), queue)
 	if err != nil {
 		co.lo.Printf("error fetching pending tasks: %v", err)
 		return nil, err
+	}
+	jLen := len(out)
+	for i := 0; i < jLen/2; i++ {
+		out[i], out[jLen-i-1] = out[jLen-i-1], out[i]
 	}
 
 	return out, nil
@@ -183,8 +175,8 @@ func (co *Core) GetPendingJobs(queue string) ([]*tasks.Signature, error) {
 
 // GetJobStatus returns the status of a job.
 func (co *Core) GetJobStatus(jobID string) (models.JobStatusResp, error) {
-	out, err := co.q.GetBackend().GetState(jobID)
-	if err == redis.ErrNil {
+	out, err := co.q.GetJob(context.Background(), jobID)
+	if err == tasqueue.ErrNotFound {
 		return models.JobStatusResp{}, fmt.Errorf("job not found")
 	} else if err != nil {
 		co.lo.Printf("error fetching job status: %v", err)
@@ -192,53 +184,53 @@ func (co *Core) GetJobStatus(jobID string) (models.JobStatusResp, error) {
 	}
 
 	return models.JobStatusResp{
-		JobID: out.TaskUUID,
-		State: out.State,
-		Error: out.Error,
+		JobID: out.ID,
+		State: out.Status,
+		Error: out.PrevErr,
 	}, nil
 }
 
 // GetJobGroupStatus returns the status of a job group including statuses of individual jobs in it.
 func (co *Core) GetJobGroupStatus(groupID string) (models.GroupStatusResp, error) {
-	if _, err := co.q.GetBackend().GetState(groupID); err == redis.ErrNil {
+	ctx := context.Background()
+
+	groupMsg, err := co.q.GetGroup(ctx, groupID)
+	if err != nil {
+		co.lo.Printf("error fetching group status: %v", err)
 		return models.GroupStatusResp{}, err
 	}
 
-	res, err := co.q.GetBackend().GroupTaskStates(groupID, 0)
+	var jobs []models.JobStatusResp
+	for uuid, status := range groupMsg.JobStatus {
+		jMsg, err := co.q.GetJob(ctx, uuid)
+		if err != nil {
+			co.lo.Printf("error fetching job status: %v", err)
+			return models.GroupStatusResp{}, err
+		}
+
+		state, err := getState(status)
+		if err != nil {
+			co.lo.Printf("error fetching job status mapping: %v", err)
+			return models.GroupStatusResp{}, err
+		}
+
+		jobs = append(jobs, models.JobStatusResp{
+			JobID: uuid,
+			State: state,
+			Error: jMsg.PrevErr,
+		})
+
+	}
+
+	state, err := getState(groupMsg.Status)
 	if err != nil {
-		co.lo.Printf("error fetching group status: %v", err)
-		return models.GroupStatusResp{}, errors.New("error fetching group status")
-	}
-
-	var (
-		jobs        = make([]models.JobStatusResp, len(res))
-		numDone     = 0
-		groupFailed = false
-	)
-	for i, j := range res {
-		jobs[i] = models.JobStatusResp{
-			JobID: j.TaskUUID,
-			State: j.State,
-			Error: j.Error,
-		}
-
-		if j.State == tasks.StateSuccess {
-			numDone++
-		} else if j.State == tasks.StateFailure {
-			groupFailed = true
-		}
-	}
-
-	status := tasks.StatePending
-	if groupFailed {
-		status = tasks.StateFailure
-	} else if len(res) == numDone {
-		status = tasks.StateSuccess
+		co.lo.Printf("error fetching group status mapping: %v", err)
+		return models.GroupStatusResp{}, err
 	}
 
 	return models.GroupStatusResp{
 		GroupID: groupID,
-		State:   status,
+		State:   state,
 		Jobs:    jobs,
 	}, nil
 }
@@ -265,7 +257,7 @@ func (co *Core) CancelJob(jobID string, purge bool) error {
 	}
 
 	// Delete the job.
-	if err := co.q.GetBackend().PurgeState(jobID); err != nil {
+	if err := co.q.DeleteJob(context.Background(), jobID); err != nil {
 		co.lo.Printf("error deleting job: %v", err)
 		return fmt.Errorf("error deleting job: %v", err)
 	}
@@ -285,13 +277,13 @@ func (co *Core) CancelJobGroup(groupID string, purge bool) error {
 	// If purge is set to false, delete job only if isn't completed yet.
 	if !purge {
 		// Get state of group ID to check if it has been completed or not.
-		s, err := co.q.GetBackend().GetState(groupID)
-		if err == redis.ErrNil {
+		s, err := co.q.GetGroup(context.Background(), groupID)
+		if err == tasqueue.ErrNotFound {
 			return errors.New("group not found")
 		}
 
 		// If the job is already complete, no go.
-		if s.State == "SUCCESS" || s.State == "FAILURE" {
+		if s.Status == tasqueue.StatusDone || s.Status == tasqueue.StatusFailed {
 			return errors.New("can't delete group as it's already complete")
 		}
 	}
@@ -312,31 +304,30 @@ func (co *Core) CancelJobGroup(groupID string, purge bool) error {
 		}
 
 		// Delete the job.
-		if err := co.q.GetBackend().PurgeState(j.JobID); err != nil {
+		if err := co.q.DeleteJob(context.Background(), j.JobID); err != nil {
 			co.lo.Printf("error deleting job: %v", err)
 			return fmt.Errorf("error deleting job: %v", err)
 		}
 	}
 
-	// Delete the group.
-	if err := co.q.GetBackend().PurgeState(groupID); err != nil {
-		co.lo.Printf("error deleting job: %v", err)
-		return fmt.Errorf("error deleting group: %v", err)
-	}
-
 	return nil
 }
 
-// makeJob creates and returns a machinery tasks.Signature{} from the given job params.
-func (co *Core) makeJob(j models.JobReq, taskName string) (tasks.Signature, error) {
+// makeJob creates and returns a tasqueue job (tasqueue.Job{}) from the given job params.
+func (co *Core) makeJob(j models.JobReq, taskName string) (tasqueue.Job, error) {
 	task, ok := co.tasks[taskName]
 	if !ok {
-		return tasks.Signature{}, fmt.Errorf("unrecognized task: %s", taskName)
+		return tasqueue.Job{}, fmt.Errorf("unrecognized task: %s", taskName)
 	}
 
 	// Check if a job with the same ID is already running.
-	if s, err := co.q.GetBackend().GetState(j.JobID); err == nil && !s.IsCompleted() {
-		return tasks.Signature{}, fmt.Errorf("job '%s' is already running", j.JobID)
+	msg, err := co.q.GetJob(context.Background(), j.JobID)
+	if err != nil && !errors.Is(err, tasqueue.ErrNotFound) {
+		return tasqueue.Job{}, fmt.Errorf("error fetching job status (id='%s')", j.JobID)
+	}
+
+	if msg.Status == tasqueue.StatusProcessing || msg.Status == tasqueue.StatusRetrying {
+		return tasqueue.Job{}, fmt.Errorf("job '%s' is already running", j.JobID)
 	}
 
 	// If there's no job_id, we generate one. This is because
@@ -346,7 +337,7 @@ func (co *Core) makeJob(j models.JobReq, taskName string) (tasks.Signature, erro
 	if j.JobID == "" {
 		uid, err := uuid.NewV4()
 		if err != nil {
-			return tasks.Signature{}, fmt.Errorf("error generating uuid: %v", err)
+			return tasqueue.Job{}, fmt.Errorf("error generating uuid: %v", err)
 		}
 
 		j.JobID = fmt.Sprintf("job_%v", uid)
@@ -357,25 +348,14 @@ func (co *Core) makeJob(j models.JobReq, taskName string) (tasks.Signature, erro
 		ttl = time.Duration(j.TTL) * time.Second
 	}
 
-	// Task arguments.
-	args := append([]tasks.Arg{
-		// Machinery will refelect on these and pass them as arguments
-		// to the callback registered using RegisterTask() when a task
-		// is executed.
-		{Type: "string", Value: j.JobID},
-		{Type: "string", Value: taskName},
-		{Type: "string", Value: j.DB},
-		{Type: "int", Value: ttl.Seconds()},
-	}, sliceToTaskArgs(j.Args)...)
-
-	var eta *time.Time
+	var eta time.Time
 	if j.ETA != "" {
 		e, err := time.Parse("2006-01-02 15:04:05", j.ETA)
 		if err != nil {
-			return tasks.Signature{}, fmt.Errorf("error parsing ETA: %v", err)
+			return tasqueue.Job{}, fmt.Errorf("error parsing ETA: %v", err)
 		}
 
-		eta = &e
+		eta = e
 	}
 
 	// If there's no queue in the request, use the one attached to the task,
@@ -384,25 +364,44 @@ func (co *Core) makeJob(j models.JobReq, taskName string) (tasks.Signature, erro
 		j.Queue = task.Queue
 	}
 
-	return tasks.Signature{
-		Name:       taskName,
-		UUID:       j.JobID,
-		RoutingKey: j.Queue,
-		RetryCount: j.Retries,
-		Args:       args,
+	var args = make([]interface{}, len(j.Args))
+	for i := range j.Args {
+		args[i] = j.Args[i]
+	}
+
+	b, err := msgpack.Marshal(taskMeta{
+		Args: args,
+		DB:   j.DB,
+		TTL:  int(ttl),
+	})
+	if err != nil {
+		return tasqueue.Job{}, err
+	}
+
+	return tasqueue.NewJob(taskName, b, tasqueue.JobOpts{
+		ID:         j.JobID,
+		Queue:      j.Queue,
+		MaxRetries: uint32(j.Retries),
 		ETA:        eta,
-	}, nil
+	})
 }
 
-// initQueue creates and returns a distributed queue system (Machinery) and registers
+type taskMeta struct {
+	Args []interface{} `json:"args"`
+	DB   string        `json:"db"`
+	TTL  int           `json:"ttl"`
+}
+
+// initQueue creates and returns a distributed queue system (Tasqueue) and registers
 // Tasks (SQL queries) to be executed. The queue system uses a broker (eg: Kafka) and stores
 // job states in a state store (eg: Redis)
-func (co *Core) initQueue() (*machinery.Server, error) {
-	qs, err := machinery.NewServer(&config.Config{
-		Broker:          co.opt.QueueBrokerDSN,
-		ResultBackend:   co.opt.QueueStateDSN,
-		DefaultQueue:    co.opt.DefaultQueue,
-		ResultsExpireIn: int(co.opt.QueueStateTTL.Milliseconds()),
+func (co *Core) initQueue() (*tasqueue.Server, error) {
+	var err error
+	// TODO: set log level
+	qs, err := tasqueue.NewServer(tasqueue.ServerOpts{
+		Broker:  co.opt.Broker,
+		Results: co.opt.Results,
+		Logger:  logf.New(logf.Opts{}),
 	})
 	if err != nil {
 		return nil, err
@@ -410,17 +409,22 @@ func (co *Core) initQueue() (*machinery.Server, error) {
 
 	// Register every SQL ready tasks in the queue system as a job function.
 	for name, query := range co.tasks {
-		qs.RegisterTask(string(name), func(t Task) taskFunc {
-			return func(jobID, taskName, db string, ttl int, args ...interface{}) (int64, error) {
-				// Check if the job's been deleted.
-				if _, err := co.q.GetBackend().GetState(jobID); err != nil {
-					return 0, fmt.Errorf("skipping deleted job: %v", err)
-				}
-
-				// When the job is invoked, run the actual DB read + result write job.
-				return co.execJob(jobID, taskName, db, time.Duration(ttl)*time.Second, args, t)
+		qs.RegisterTask(string(name), func(b []byte, jctx tasqueue.JobCtx) error {
+			if _, err := qs.GetJob(context.Background(), jctx.Meta.ID); err != nil {
+				return err
 			}
-		}(query))
+
+			var args taskMeta
+			if err := msgpack.Unmarshal(b, &args); err != nil {
+				return fmt.Errorf("could not unmarshal args : %w", err)
+			}
+
+			_, err = co.execJob(jctx.Meta.ID, name, args.DB, time.Duration(args.TTL)*time.Second, args.Args, query)
+			return err
+		}, tasqueue.TaskOpts{
+			Concurrency: uint32(query.Conc),
+			Queue:       query.Queue,
+		})
 	}
 
 	return qs, nil
@@ -549,17 +553,21 @@ func (co *Core) writeResults(jobID string, task Task, ttl time.Duration, rows *s
 	return numRows, nil
 }
 
-// sliceToTaskArgs takes a url.Values{} and returns a typed
-// machinery Task Args list.
-func sliceToTaskArgs(a []string) []tasks.Arg {
-	var args []tasks.Arg
-
-	for _, v := range a {
-		args = append(args, tasks.Arg{
-			Type:  "string",
-			Value: v,
-		})
+// getState helps keep compatibility between different status conventions
+// of the job servers (tasqueue/machinery).
+func getState(st string) (string, error) {
+	switch st {
+	case tasqueue.StatusStarted:
+		return "PENDING", nil
+	case tasqueue.StatusProcessing:
+		return "STARTED", nil
+	case tasqueue.StatusFailed:
+		return "FAILURE", nil
+	case tasqueue.StatusDone:
+		return "SUCCESS", nil
+	case tasqueue.StatusRetrying:
+		return "RETRY", nil
 	}
 
-	return args
+	return "", fmt.Errorf("invalid status not found in mapping")
 }

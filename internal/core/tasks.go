@@ -15,6 +15,7 @@ import (
 type Task struct {
 	Name           string         `json:"name"`
 	Queue          string         `json:"queue"`
+	Conc           int            `json:"concurrency"`
 	Stmt           *sql.Stmt      `json:"-"`
 	Raw            string         `json:"raw,omitempty"`
 	DBs            dbpool.Pool    `json:"-"`

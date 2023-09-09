@@ -36,9 +36,8 @@ type JobStatusResp struct {
 
 // GroupReq represents a Jobrequest group.
 type GroupReq struct {
-	GroupID     string   `json:"group_id"`
-	Concurrency int      `json:"concurrency"`
-	Jobs        []JobReq `json:"jobs"`
+	GroupID string   `json:"group_id"`
+	Jobs    []JobReq `json:"jobs"`
 }
 
 // GroupResp is the response sent to a group job request.

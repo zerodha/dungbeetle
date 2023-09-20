@@ -126,7 +126,7 @@ func initCore(ko *koanf.Koanf) *core.Core {
 
 	rBroker := bredis.New(bredis.Options{
 		PollPeriod:   bredis.DefaultPollPeriod,
-		Addrs:        ko.MustStrings("job_queue.broker.address"),
+		Addrs:        ko.MustStrings("job_queue.broker.addresses"),
 		Password:     ko.String("job_queue.broker.password"),
 		DB:           ko.Int("job_queue.broker.db"),
 		MinIdleConns: ko.MustInt("job_queue.broker.max_idle"),
@@ -136,7 +136,7 @@ func initCore(ko *koanf.Koanf) *core.Core {
 	}, lo)
 
 	rResult := rredis.New(rredis.Options{
-		Addrs:        ko.MustStrings("job_queue.results.address"),
+		Addrs:        ko.MustStrings("job_queue.results.addresses"),
 		Password:     ko.String("job_queue.results.password"),
 		DB:           ko.Int("job_queue.results.db"),
 		MinIdleConns: ko.MustInt("job_queue.results.max_idle"),

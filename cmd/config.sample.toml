@@ -1,5 +1,5 @@
 [job_queue.broker]
-address = ["localhost:6379"]
+addresses = ["localhost:6379"]
 password = ""
 db = 1
 max_active = 50
@@ -13,7 +13,7 @@ write_timeout = "1s"
 # and is not to be confused with the DungBeetle's 'result_backend'
 # where DungBeetle stores results of jobs, bypassing tasqueue.
 [job_queue.results]
-address = ["localhost:6379"]
+addresses = ["localhost:6379"]
 password = ""
 db = 1
 max_active = 50

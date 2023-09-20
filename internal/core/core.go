@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -14,7 +14,6 @@ import (
 	"github.com/vmihailenco/msgpack"
 	"github.com/zerodha/dungbeetle/internal/dbpool"
 	"github.com/zerodha/dungbeetle/models"
-	"github.com/zerodha/logf"
 )
 
 // Opt represents core options.
@@ -47,11 +46,11 @@ type Core struct {
 	jobCtx map[string]context.CancelFunc
 	mu     sync.RWMutex
 
-	lo *log.Logger
+	lo *slog.Logger
 }
 
 // New returns a new instance of Core.
-func New(o Opt, srcDBs dbpool.Pool, res ResultBackends, lo *log.Logger) *Core {
+func New(o Opt, srcDBs dbpool.Pool, res ResultBackends, lo *slog.Logger) *Core {
 	return &Core{
 		opt:            o,
 		tasks:          make(Tasks),
@@ -150,7 +149,7 @@ func (co *Core) NewJobGroup(req models.GroupReq) (models.GroupResp, error) {
 func (co *Core) GetPendingJobs(queue string) ([]tasqueue.JobMessage, error) {
 	out, err := co.q.GetPending(context.Background(), queue)
 	if err != nil {
-		co.lo.Printf("error fetching pending tasks: %v", err)
+		co.lo.Error("error fetching pending tasks", "error", err)
 		return nil, err
 	}
 	jLen := len(out)
@@ -167,7 +166,7 @@ func (co *Core) GetJobStatus(jobID string) (models.JobStatusResp, error) {
 	if err == tasqueue.ErrNotFound {
 		return models.JobStatusResp{}, fmt.Errorf("job not found")
 	} else if err != nil {
-		co.lo.Printf("error fetching job status: %v", err)
+		co.lo.Error("error fetching job status", "error", err)
 		return models.JobStatusResp{}, err
 	}
 
@@ -184,7 +183,7 @@ func (co *Core) GetJobGroupStatus(groupID string) (models.GroupStatusResp, error
 
 	groupMsg, err := co.q.GetGroup(ctx, groupID)
 	if err != nil {
-		co.lo.Printf("error fetching group status: %v", err)
+		co.lo.Error("error fetching group status", "error", err)
 		return models.GroupStatusResp{}, err
 	}
 
@@ -192,13 +191,13 @@ func (co *Core) GetJobGroupStatus(groupID string) (models.GroupStatusResp, error
 	for uuid, status := range groupMsg.JobStatus {
 		jMsg, err := co.q.GetJob(ctx, uuid)
 		if err != nil {
-			co.lo.Printf("error fetching job status: %v", err)
+			co.lo.Error("error fetching job status", "error", err)
 			return models.GroupStatusResp{}, err
 		}
 
 		state, err := getState(status)
 		if err != nil {
-			co.lo.Printf("error fetching job status mapping: %v", err)
+			co.lo.Error("error fetching job status mapping", "error", err)
 			return models.GroupStatusResp{}, err
 		}
 
@@ -212,7 +211,7 @@ func (co *Core) GetJobGroupStatus(groupID string) (models.GroupStatusResp, error
 
 	state, err := getState(groupMsg.Status)
 	if err != nil {
-		co.lo.Printf("error fetching group status mapping: %v", err)
+		co.lo.Error("error fetching group status mapping", "error", err)
 		return models.GroupStatusResp{}, err
 	}
 
@@ -227,7 +226,7 @@ func (co *Core) GetJobGroupStatus(groupID string) (models.GroupStatusResp, error
 func (co *Core) CancelJob(jobID string, purge bool) error {
 	s, err := co.GetJobStatus(jobID)
 	if err != nil {
-		co.lo.Printf("error fetching job: %v", err)
+		co.lo.Error("error fetching job", "error", err)
 		return errors.New("error fetching job")
 	}
 
@@ -246,7 +245,7 @@ func (co *Core) CancelJob(jobID string, purge bool) error {
 
 	// Delete the job.
 	if err := co.q.DeleteJob(context.Background(), jobID); err != nil {
-		co.lo.Printf("error deleting job: %v", err)
+		co.lo.Error("error deleting job", "error", err)
 		return fmt.Errorf("error deleting job: %v", err)
 	}
 
@@ -258,7 +257,7 @@ func (co *Core) CancelJobGroup(groupID string, purge bool) error {
 	// Get state of group.
 	res, err := co.GetJobGroupStatus(groupID)
 	if err != nil {
-		co.lo.Printf("error fetching group status: %v", err)
+		co.lo.Error("error fetching group status", "error", err)
 		return errors.New("error fetching group status")
 	}
 
@@ -279,7 +278,7 @@ func (co *Core) CancelJobGroup(groupID string, purge bool) error {
 	// Loop through every job of the group and purge them.
 	for _, j := range res.Jobs {
 		if err != nil {
-			co.lo.Printf("error fetching job: %v", err)
+			co.lo.Error("error fetching job", "error", err)
 			return errors.New("error fetching job from group")
 		}
 
@@ -293,7 +292,7 @@ func (co *Core) CancelJobGroup(groupID string, purge bool) error {
 
 		// Delete the job.
 		if err := co.q.DeleteJob(context.Background(), j.JobID); err != nil {
-			co.lo.Printf("error deleting job: %v", err)
+			co.lo.Error("error deleting job", "error", err)
 			return fmt.Errorf("error deleting job: %v", err)
 		}
 	}
@@ -389,7 +388,7 @@ func (co *Core) initQueue() (*tasqueue.Server, error) {
 	qs, err := tasqueue.NewServer(tasqueue.ServerOpts{
 		Broker:  co.opt.Broker,
 		Results: co.opt.Results,
-		Logger:  logf.New(logf.Opts{}),
+		Logger:  co.lo.Handler(),
 	})
 	if err != nil {
 		return nil, err
@@ -482,8 +481,7 @@ func (co *Core) writeResults(jobID string, task Task, ttl time.Duration, rows *s
 
 	// Get the results backend.
 	name, backend := task.ResultBackends.GetRandom()
-	co.lo.Printf("sending results form '%s' to '%s'", jobID, name)
-
+	co.lo.Info("sending results form", "job_id", jobID, "name", name)
 	w, err := backend.NewResultSet(jobID, task.Name, ttl)
 	if err != nil {
 		return numRows, fmt.Errorf("error writing columns to result backend: %v", err)

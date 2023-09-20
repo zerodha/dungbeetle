@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -18,7 +19,6 @@ import (
 	"github.com/zerodha/dungbeetle/internal/core"
 	"github.com/zerodha/dungbeetle/internal/dbpool"
 	"github.com/zerodha/dungbeetle/internal/resultbackends/sqldb"
-	"github.com/zerodha/logf"
 )
 
 var (
@@ -122,6 +122,8 @@ func initCore(ko *koanf.Koanf) *core.Core {
 		backends[name] = backend
 	}
 
+	lo := slog.Default()
+
 	rBroker := bredis.New(bredis.Options{
 		PollPeriod:   bredis.DefaultPollPeriod,
 		Addrs:        ko.MustStrings("job_queue.broker.address"),
@@ -131,7 +133,7 @@ func initCore(ko *koanf.Koanf) *core.Core {
 		DialTimeout:  ko.MustDuration("job_queue.broker.dial_timeout"),
 		ReadTimeout:  ko.MustDuration("job_queue.broker.read_timeout"),
 		WriteTimeout: ko.MustDuration("job_queue.broker.write_timeout"),
-	}, logf.New(logf.Opts{}))
+	}, lo)
 
 	rResult := rredis.New(rredis.Options{
 		Addrs:        ko.MustStrings("job_queue.results.address"),
@@ -143,7 +145,7 @@ func initCore(ko *koanf.Koanf) *core.Core {
 		WriteTimeout: ko.MustDuration("job_queue.results.write_timeout"),
 		Expiry:       ko.Duration("job_queue.results.expiry"),
 		MetaExpiry:   ko.Duration("job_queue.results.meta_expiry"),
-	}, logf.New(logf.Opts{}))
+	}, lo)
 
 	// Initialize the server and load SQL tasks.
 	co := core.New(core.Opt{
@@ -154,7 +156,8 @@ func initCore(ko *koanf.Koanf) *core.Core {
 		Broker:                  rBroker,
 	}, srcPool, backends, lo)
 	if err := co.LoadTasks(ko.MustStrings("sql-directory")); err != nil {
-		lo.Fatal(err)
+		lo.Error("could not load tasks", "error", err)
+		return nil
 	}
 
 	return co

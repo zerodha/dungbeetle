@@ -1,4 +1,7 @@
+# The broker that manages job queuing.
+# Currently, only "redis" is supported.
 [job_queue.broker]
+type = "redis"
 addresses = ["localhost:6379"]
 password = ""
 db = 1
@@ -8,11 +11,11 @@ dial_timeout = "1s"
 read_timeout = "1s"
 write_timeout = "1s"
 
-# This is where Tasqueue stores it's job states.
-# In Tasqueue's terminology, this is its "result backend"
-# and is not to be confused with the DungBeetle's 'result_backend'
-# where DungBeetle stores results of jobs, bypassing tasqueue.
-[job_queue.results]
+# The state store where the state of the jobs in the queue and their
+# metadata are maintained.
+# Currently, only "redis" is supported.
+[job_queue.state]
+type = "redis"
 addresses = ["localhost:6379"]
 password = ""
 db = 1

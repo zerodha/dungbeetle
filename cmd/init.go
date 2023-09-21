@@ -5,7 +5,6 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -96,13 +95,13 @@ func initCore(ko *koanf.Koanf) *core.Core {
 	// Connect to source DBs.
 	srcPool, err := dbpool.New(srcDBs)
 	if err != nil {
-		log.Fatal(err)
+		lo.Fatal(err)
 	}
 
 	// Connect to result DBs.
 	resPool, err := dbpool.New(resDBs)
 	if err != nil {
-		log.Fatal(err)
+		lo.Fatal(err)
 	}
 
 	// Initialize the result backend controller for every backend.
@@ -116,14 +115,20 @@ func initCore(ko *koanf.Koanf) *core.Core {
 
 		backend, err := sqldb.NewSQLBackend(db, opt, lo)
 		if err != nil {
-			log.Fatalf("error initializing result backend: %v", err)
+			lo.Fatalf("error initializing result backend: %v", err)
 		}
 
 		backends[name] = backend
 	}
 
-	lo := slog.Default()
+	if v := ko.MustString("job_queue.broker.type"); v != "redis" {
+		lo.Fatalf("unsupported job_queue.broker.type '%s'. Only 'redis' is supported.", v)
+	}
+	if v := ko.MustString("job_queue.state.type"); v != "redis" {
+		lo.Fatalf("unsupported job_queue.state.type '%s'. Only 'redis' is supported.", v)
+	}
 
+	lo := slog.Default()
 	rBroker := bredis.New(bredis.Options{
 		PollPeriod:   bredis.DefaultPollPeriod,
 		Addrs:        ko.MustStrings("job_queue.broker.addresses"),
@@ -136,15 +141,15 @@ func initCore(ko *koanf.Koanf) *core.Core {
 	}, lo)
 
 	rResult := rredis.New(rredis.Options{
-		Addrs:        ko.MustStrings("job_queue.results.addresses"),
-		Password:     ko.String("job_queue.results.password"),
-		DB:           ko.Int("job_queue.results.db"),
-		MinIdleConns: ko.MustInt("job_queue.results.max_idle"),
-		DialTimeout:  ko.MustDuration("job_queue.results.dial_timeout"),
-		ReadTimeout:  ko.MustDuration("job_queue.results.read_timeout"),
-		WriteTimeout: ko.MustDuration("job_queue.results.write_timeout"),
-		Expiry:       ko.Duration("job_queue.results.expiry"),
-		MetaExpiry:   ko.Duration("job_queue.results.meta_expiry"),
+		Addrs:        ko.MustStrings("job_queue.state.addresses"),
+		Password:     ko.String("job_queue.state.password"),
+		DB:           ko.Int("job_queue.state.db"),
+		MinIdleConns: ko.MustInt("job_queue.state.max_idle"),
+		DialTimeout:  ko.MustDuration("job_queue.state.dial_timeout"),
+		ReadTimeout:  ko.MustDuration("job_queue.state.read_timeout"),
+		WriteTimeout: ko.MustDuration("job_queue.state.write_timeout"),
+		Expiry:       ko.Duration("job_queue.state.expiry"),
+		MetaExpiry:   ko.Duration("job_queue.state.meta_expiry"),
 	}, lo)
 
 	// Initialize the server and load SQL tasks.

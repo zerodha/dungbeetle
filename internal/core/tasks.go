@@ -15,6 +15,7 @@ import (
 type Task struct {
 	Name           string         `json:"name"`
 	Queue          string         `json:"queue"`
+	Conc           int            `json:"concurrency"`
 	Stmt           *sql.Stmt      `json:"-"`
 	Raw            string         `json:"raw,omitempty"`
 	DBs            dbpool.Pool    `json:"-"`
@@ -27,7 +28,7 @@ type Tasks map[string]Task
 // LoadTasks loads SQL queries from all the .sql files in a given directory.
 func (co *Core) LoadTasks(dirs []string) error {
 	for _, d := range dirs {
-		co.lo.Printf("loading SQL queries from directory: %s", d)
+		co.lo.Info("loading SQL queries from directory", "dir", d)
 		tasks, err := co.loadTasks(d)
 		if err != nil {
 			return err
@@ -41,7 +42,7 @@ func (co *Core) LoadTasks(dirs []string) error {
 			co.tasks[t] = q
 		}
 
-		co.lo.Printf("loaded %d tasks (SQL queries) from %s", len(tasks), d)
+		co.lo.Info("loaded tasks (SQL queries)", "count", len(tasks), "dir", d)
 	}
 
 	return nil
@@ -124,7 +125,7 @@ func (co *Core) loadTasks(dir string) (Tasks, error) {
 				queue = strings.TrimSpace(v)
 			}
 
-			co.lo.Printf("-- task %s (%s) (db = %v) (results = %v) (queue = %v)", name, typ, srcDBs.GetNames(), srcPool.GetNames(), queue)
+			co.lo.Info("loading task", "task", name, "type", typ, "db", srcDBs.GetNames(), "results", srcPool.GetNames(), "queue", queue)
 			tasks[name] = Task{
 				Name:           name,
 				Queue:          queue,

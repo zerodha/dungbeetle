@@ -52,7 +52,7 @@ func NewConn(cfg Config) (*sql.DB, error) {
 
 	// Ping database to check for connection issues.
 	if err = db.Ping(); err != nil {
-		return nil, fmt.Errorf("error connecting to db : %v", err)
+		return nil, fmt.Errorf("error pinging db : %v", err)
 	}
 
 	return db, nil

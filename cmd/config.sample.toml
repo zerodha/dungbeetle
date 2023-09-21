@@ -1,18 +1,28 @@
-# Redis addresses are denoted as: redis://password@host:port/db_num
+[job_queue.broker]
+addresses = ["localhost:6379"]
+password = ""
+db = 1
+max_active = 50
+max_idle = 20
+dial_timeout = "1s"
+read_timeout = "1s"
+write_timeout = "1s"
 
-[job_queue]
-broker_address = "redis://127.0.0.1:6379/1"
-
-# This is where Machinery stores it's job states.
-# In Machinery's terminology, this is its "result backend"
+# This is where Tasqueue stores it's job states.
+# In Tasqueue's terminology, this is its "result backend"
 # and is not to be confused with the DungBeetle's 'result_backend'
-# where DungBeetle stores results of jobs, bypassing machinery.
-state_address = "redis://127.0.0.1:6379/1"
-
-# TTL in seconds after which a job entry and its meta disappears from the Machinery
-# store. This does not remove results from the results DB.
-state_ttl = "30m"
-
+# where DungBeetle stores results of jobs, bypassing tasqueue.
+[job_queue.results]
+addresses = ["localhost:6379"]
+password = ""
+db = 1
+max_active = 50
+max_idle = 20
+dial_timeout = "1s"
+read_timeout = "1s"
+write_timeout = "1s"
+expiry = "30s"
+meta_expiry = "3600s"
 
 # These are the result backends where the results of various SQL query jobs are saved.
 # There can be more than one backends defined here, for eg: [results.my1], [db.my2] ...

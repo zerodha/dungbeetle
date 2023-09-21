@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -98,8 +99,10 @@ func main() {
 		go initHTTP(co)
 	}
 
+	ctx := context.Background()
+
 	// Start the core.
-	if err := co.Start(ko.MustString("worker-name"), ko.MustInt("worker-concurrency")); err != nil {
+	if err := co.Start(ctx, ko.MustString("worker-name"), ko.MustInt("worker-concurrency")); err != nil {
 		lo.Fatal(err)
 	}
 }

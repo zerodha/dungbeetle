@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/RichardKnop/machinery/v1/tasks"
+	"github.com/kalbhor/tasqueue/v2"
 	"github.com/zerodha/dungbeetle/models"
 )
 
@@ -97,8 +97,8 @@ func (c *Client) DeleteGroupJob(jobID string, purge bool) error {
 }
 
 // GetPendingJobs fetches the list of pending jobs.
-func (c *Client) GetPendingJobs(queue string) ([]tasks.Signature, error) {
-	var out []tasks.Signature
+func (c *Client) GetPendingJobs(queue string) ([]tasqueue.JobMessage, error) {
+	var out []tasqueue.JobMessage
 	err := c.doHTTPReq(http.MethodGet,
 		fmt.Sprintf(uriGetPendingJobs, queue), nil, nil, &out)
 	return out, err

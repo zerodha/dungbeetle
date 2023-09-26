@@ -11,9 +11,6 @@ import (
 	"github.com/zerodha/dungbeetle/models"
 )
 
-// groupConcurrency represents the concurrency factor for job groups.
-const groupConcurrency = 5
-
 // reValidateName represents the character classes allowed in a job ID.
 var reValidateName = regexp.MustCompile("(?i)^[a-z0-9-_:]+$")
 
@@ -34,12 +31,11 @@ func handleGetTasksList(w http.ResponseWriter, r *http.Request) {
 
 	// Just the names.
 	out := make([]string, 0, len(tasks))
-	for name, _ := range tasks {
+	for name := range tasks {
 		out = append(out, name)
 	}
 
 	sendResponse(w, out)
-	return
 }
 
 // handleGetJobStatus returns the status of a given jobID.

@@ -27,7 +27,7 @@ var (
 
 func generateConfig() error {
 	if _, err := os.Stat("config.toml"); !os.IsNotExist(err) {
-		return errors.New("config.toml exists. Remove it to generate a new one.")
+		return errors.New("config.toml exists. Remove it to generate a new one")
 	}
 
 	// Generate config file.

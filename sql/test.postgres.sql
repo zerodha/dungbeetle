@@ -7,7 +7,6 @@
 
 -- name: get_profit_summary
 -- db: my_db
--- queue: summarise
 -- concurrency: 5
 SELECT SUM(amount) AS total, entry_date FROM entries WHERE user_id = $1 GROUP BY entry_date;
 

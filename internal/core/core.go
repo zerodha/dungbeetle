@@ -170,9 +170,15 @@ func (co *Core) GetJobStatus(jobID string) (models.JobStatusResp, error) {
 		return models.JobStatusResp{}, err
 	}
 
+	state, err := getState(out.Status)
+	if err != nil {
+		co.lo.Error("error fetching job status mapping", "error", err)
+		return models.JobStatusResp{}, err
+	}
+
 	return models.JobStatusResp{
 		JobID: out.ID,
-		State: out.Status,
+		State: state,
 		Error: out.PrevErr,
 	}, nil
 }
@@ -182,7 +188,9 @@ func (co *Core) GetJobGroupStatus(groupID string) (models.GroupStatusResp, error
 	ctx := context.Background()
 
 	groupMsg, err := co.q.GetGroup(ctx, groupID)
-	if err != nil {
+	if err == tasqueue.ErrNotFound {
+		return models.GroupStatusResp{}, fmt.Errorf("group not found")
+	} else if err != nil {
 		co.lo.Error("error fetching group status", "error", err)
 		return models.GroupStatusResp{}, err
 	}
@@ -266,7 +274,10 @@ func (co *Core) CancelJobGroup(groupID string, purge bool) error {
 		// Get state of group ID to check if it has been completed or not.
 		s, err := co.q.GetGroup(context.Background(), groupID)
 		if err == tasqueue.ErrNotFound {
-			return errors.New("group not found")
+			return fmt.Errorf("group not found")
+		} else if err != nil {
+			co.lo.Error("error fetching group status", "error", err)
+			return err
 		}
 
 		// If the job is already complete, no go.
@@ -396,7 +407,7 @@ func (co *Core) initQueue() (*tasqueue.Server, error) {
 
 	// Register every SQL ready tasks in the queue system as a job function.
 	for name, query := range co.tasks {
-		qs.RegisterTask(string(name), func(b []byte, jctx tasqueue.JobCtx) error {
+		err := qs.RegisterTask(string(name), func(b []byte, jctx tasqueue.JobCtx) error {
 			if _, err := qs.GetJob(context.Background(), jctx.Meta.ID); err != nil {
 				return err
 			}
@@ -412,6 +423,9 @@ func (co *Core) initQueue() (*tasqueue.Server, error) {
 			Concurrency: uint32(query.Conc),
 			Queue:       query.Queue,
 		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return qs, nil

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
 	"strings"
@@ -25,37 +24,14 @@ import (
 var (
 	buildString = "unknown"
 
+	// Initially, set the logger as default
 	lo *slog.Logger = slog.Default()
 	ko              = koanf.New(".")
 )
 
 func init() {
-	// Load the config file.
-	if err := ko.Load(file.Provider(ko.String("config")), toml.Parser()); err != nil {
-		slog.Error("error reading config", "error", err)
-		return
-	}
+	lo.Info("buildstring", "value", buildString)
 
-	var (
-		level = ko.MustString("app.log_level")
-		opts  = &slog.HandlerOptions{}
-	)
-	switch level {
-	case "DEBUG":
-		opts.Level = slog.LevelDebug
-	case "INFO":
-		opts.Level = slog.LevelInfo
-	case "ERROR":
-		opts.Level = slog.LevelError
-	default:
-		log.Fatal("incorrect log level in app")
-	}
-
-	lo = slog.New(slog.NewTextHandler(os.Stdout, opts))
-
-}
-
-func main() {
 	// Command line flags.
 	f := flag.NewFlagSet("config", flag.ContinueOnError)
 	f.Usage = func() {
@@ -78,12 +54,6 @@ func main() {
 	// Load commandline params.
 	ko.Load(posflag.Provider(f, ".", ko), nil)
 
-	// Display version.
-	if ko.Bool("version") {
-		lo.Info("version", "value", buildString)
-		os.Exit(0)
-	}
-
 	// Generate new config file.
 	if ok, _ := f.GetBool("new-config"); ok {
 		if err := generateConfig(); err != nil {
@@ -94,12 +64,37 @@ func main() {
 		os.Exit(0)
 	}
 
-	lo.Info("buildstring", "value", buildString)
 	// Load the config file.
-	lo.Info("reading config", "path", ko.String("config"))
 	if err := ko.Load(file.Provider(ko.String("config")), toml.Parser()); err != nil {
-		lo.Error("error reading config", "error", err)
+		slog.Error("error reading config", "error", err)
 		return
+	}
+
+	var (
+		level = ko.MustString("app.log_level")
+		opts  = &slog.HandlerOptions{}
+	)
+	switch level {
+	case "DEBUG":
+		opts.Level = slog.LevelDebug
+	case "INFO":
+		opts.Level = slog.LevelInfo
+	case "ERROR":
+		opts.Level = slog.LevelError
+	default:
+		lo.Error("incorrect log level in app")
+		os.Exit(1)
+	}
+
+	// Override the logger according to level
+	lo = slog.New(slog.NewTextHandler(os.Stdout, opts))
+}
+
+func main() {
+	// Display version.
+	if ko.Bool("version") {
+		lo.Info("version", "value", buildString)
+		os.Exit(0)
 	}
 
 	// Load environment variables and merge into the loaded config.

@@ -479,6 +479,9 @@ func (co *Core) execJob(jobID, taskName, dbName string, ttl time.Duration, args 
 	if task.Stmt != nil {
 		// Prepared query.
 		rows, err = task.Stmt.QueryContext(ctx, args...)
+		if err != nil {
+			return 0, fmt.Errorf("query preparation failed: %w", err)
+		}
 	} else {
 
 		if dbName != "" {

@@ -1,9 +1,8 @@
 package client
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 
@@ -37,7 +36,7 @@ func init() {
 				ResponseHeaderTimeout: time.Second * 5,
 			},
 		},
-		Logger: log.New(os.Stdout, "", 0),
+		Logger: slog.Default(),
 	})
 }
 

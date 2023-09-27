@@ -21,6 +21,8 @@ func handleGetTasksList(w http.ResponseWriter, r *http.Request) {
 		co = r.Context().Value("core").(*core.Core)
 	)
 
+	lo.Debug("received http request", "handler", "get task list")
+
 	tasks := co.GetTasks()
 
 	// Full task including SQL queries.
@@ -46,8 +48,11 @@ func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 		jobID = chi.URLParam(r, "jobID")
 	)
 
+	lo.Debug("received http request", "handler", "get job status", "job_id", jobID)
+
 	out, err := co.GetJobStatus(jobID)
 	if err != nil {
+		lo.Error("could not get job status", "error", err, "job_id", jobID)
 		sendErrorResponse(w, "job not found", http.StatusNotFound)
 		return
 	}
@@ -63,8 +68,11 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 		groupID = chi.URLParam(r, "groupID")
 	)
 
+	lo.Debug("received http request", "handler", "get group status", "group_id", groupID)
+
 	out, err := co.GetJobGroupStatus(groupID)
 	if err != nil {
+		lo.Error("could not get group job status", "error", err, "group_id", groupID)
 		sendErrorResponse(w, err.Error(), http.StatusNotFound)
 		return
 	}
@@ -75,11 +83,15 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 // handleGetPendingJobs returns pending jobs in a given queue.
 func handleGetPendingJobs(w http.ResponseWriter, r *http.Request) {
 	var (
-		co = r.Context().Value("core").(*core.Core)
+		co    = r.Context().Value("core").(*core.Core)
+		queue = chi.URLParam(r, "queue")
 	)
 
-	out, err := co.GetPendingJobs(chi.URLParam(r, "queue"))
+	lo.Debug("received http request", "handler", "get pending jobs")
+
+	out, err := co.GetPendingJobs(queue)
 	if err != nil {
+		lo.Error("could not get pending jobs", "error", err, "queue", queue)
 		sendErrorResponse(w, "error fetching pending tasks", http.StatusInternalServerError)
 		return
 	}
@@ -95,7 +107,10 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 		taskName = chi.URLParam(r, "taskName")
 	)
 
+	lo.Debug("received http request", "handler", "post job", "task_name", taskName)
+
 	if r.ContentLength == 0 {
+		lo.Error("request body sent empty")
 		sendErrorResponse(w, "request body is empty", http.StatusBadRequest)
 		return
 	}
@@ -105,7 +120,7 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 		req     models.JobReq
 	)
 	if err := decoder.Decode(&req); err != nil {
-		lo.Printf("error parsing request JSON: %v", err)
+		lo.Error("error parsing request JSON", "error", err, "task_name", taskName, "request", req)
 		sendErrorResponse(w, "error parsing request JSON", http.StatusBadRequest)
 		return
 	}
@@ -118,6 +133,7 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 	// Create the job signature.
 	out, err := co.NewJob(req, taskName)
 	if err != nil {
+		lo.Error("could not create new job", "error", err, "task_name", taskName, "request", req)
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -134,15 +150,17 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 		req     models.GroupReq
 	)
 
+	lo.Debug("received http request", "handler", "post job group", "request", req)
+
 	if err := decoder.Decode(&req); err != nil {
-		lo.Printf("error parsing JSON body: %v", err)
+		lo.Error("error parsing JSON body", "error", err, "request", req)
 		sendErrorResponse(w, "error parsing JSON body", http.StatusBadRequest)
 		return
 	}
 
 	out, err := co.NewJobGroup(req)
 	if err != nil {
-		lo.Printf("error creating job signature: %v", err)
+		lo.Error("error creating job signature", "error", err, "request", req)
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -160,7 +178,10 @@ func handleCancelJob(w http.ResponseWriter, r *http.Request) {
 		purge, _ = strconv.ParseBool(r.URL.Query().Get("purge"))
 	)
 
+	lo.Debug("received http request", "handler", "cancel job", "job_id", jobID, "purge", purge)
+
 	if err := co.CancelJob(jobID, purge); err != nil {
+		lo.Error("could not cancel job", "error", err, "job_id", jobID)
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 	}
 
@@ -177,8 +198,11 @@ func handleCancelGroupJob(w http.ResponseWriter, r *http.Request) {
 		purge, _ = strconv.ParseBool(r.URL.Query().Get("purge"))
 	)
 
+	lo.Debug("received http request", "handler", "cancel group job", "group_id", groupID, "purge", purge)
+
 	// Get state of group.
 	if err := co.CancelJobGroup(groupID, purge); err != nil {
+		lo.Error("could not cancel group job", "error", err, "group_id", groupID)
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -191,6 +215,7 @@ func sendResponse(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	out, err := json.Marshal(models.HTTPResp{Status: "success", Data: data})
 	if err != nil {
+		lo.Error("could marshal response", "error", err)
 		sendErrorResponse(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}

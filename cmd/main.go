@@ -4,15 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"strings"
+
+	flag "github.com/spf13/pflag"
 
 	"github.com/knadh/koanf/parsers/toml"
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/providers/posflag"
 	"github.com/knadh/koanf/v2"
-	flag "github.com/spf13/pflag"
 
 	// Clickhouse, MySQL and Postgres drivers.
 	_ "github.com/ClickHouse/clickhouse-go"
@@ -23,16 +25,42 @@ import (
 var (
 	buildString = "unknown"
 
-	lo = log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile)
-	ko = koanf.New(".")
+	lo *slog.Logger = slog.Default()
+	ko              = koanf.New(".")
 )
 
 func init() {
+	// Load the config file.
+	if err := ko.Load(file.Provider(ko.String("config")), toml.Parser()); err != nil {
+		slog.Error("error reading config", "error", err)
+		return
+	}
+
+	var (
+		level = ko.MustString("app.log_level")
+		opts  = &slog.HandlerOptions{}
+	)
+	switch level {
+	case "DEBUG":
+		opts.Level = slog.LevelDebug
+	case "INFO":
+		opts.Level = slog.LevelInfo
+	case "ERROR":
+		opts.Level = slog.LevelError
+	default:
+		log.Fatal("incorrect log level in app")
+	}
+
+	lo = slog.New(slog.NewTextHandler(os.Stdout, opts))
+
+}
+
+func main() {
 	// Command line flags.
 	f := flag.NewFlagSet("config", flag.ContinueOnError)
 	f.Usage = func() {
-		lo.Println("DungBeetle")
-		lo.Println(f.FlagUsages())
+		lo.Info("DungBeetle")
+		lo.Info(f.FlagUsages())
 		os.Exit(0)
 	}
 
@@ -43,7 +71,6 @@ func init() {
 	f.String("queue", "default", "name of the job queue to accept jobs from")
 	f.String("worker-name", "default", "name of this worker instance")
 	f.Int("worker-concurrency", 10, "number of concurrent worker threads to run")
-	f.Int("job-ttl", 60, "maximum time (in seconds) allowed for a job to run once it has started execution")
 	f.Bool("worker-only", false, "don't start the web server and run in worker-only mode")
 	f.Bool("version", false, "show current version and build")
 	f.Parse(os.Args[1:])
@@ -53,7 +80,7 @@ func init() {
 
 	// Display version.
 	if ko.Bool("version") {
-		fmt.Println(buildString)
+		lo.Info("version", "value", buildString)
 		os.Exit(0)
 	}
 
@@ -67,12 +94,12 @@ func init() {
 		os.Exit(0)
 	}
 
-	lo.Println(buildString)
-
+	lo.Info("buildstring", "value", buildString)
 	// Load the config file.
-	lo.Printf("reading config: %s", ko.String("config"))
+	lo.Info("reading config", "path", ko.String("config"))
 	if err := ko.Load(file.Provider(ko.String("config")), toml.Parser()); err != nil {
-		lo.Printf("error reading config: %v", err)
+		lo.Error("error reading config", "error", err)
+		return
 	}
 
 	// Load environment variables and merge into the loaded config.
@@ -80,20 +107,24 @@ func init() {
 		return strings.Replace(
 			strings.ToLower(strings.TrimPrefix(s, "DUNG_BEETLE")), "__", ".", -1)
 	}), nil); err != nil {
-		lo.Fatalf("error loading config from env: %v", err)
+		lo.Error("error loading config from env", "error", err)
+		return
 	}
 
-}
-
-func main() {
 	mode := "full"
 	if ko.Bool("worker-only") {
 		mode = "worker only"
 	}
-	lo.Printf("starting server '%s' (queue = '%s') in %s mode", ko.MustString("worker-name"), ko.MustString("queue"), mode)
+
+	lo.Info("starting server", "queue", ko.MustString("queue"), "mode", mode,
+		"worker-name", ko.MustString("worker-name"))
 
 	// Initialize the core.
-	co := initCore(ko)
+	co, err := initCore(ko)
+	if err != nil {
+		lo.Error("could not initialise core", "error", err)
+		return
+	}
 
 	// Start the HTTP server if not in the worker-only mode.
 	if !ko.Bool("worker-only") {
@@ -104,6 +135,6 @@ func main() {
 
 	// Start the core.
 	if err := co.Start(ctx, ko.MustString("worker-name"), ko.MustInt("worker-concurrency")); err != nil {
-		lo.Fatal(err)
+		lo.Error("could not start core", "error", err)
 	}
 }

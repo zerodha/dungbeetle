@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -48,7 +48,7 @@ type httpResp struct {
 type Opt struct {
 	RootURL    string
 	HTTPClient *http.Client
-	Logger     *log.Logger
+	Logger     *slog.Logger
 }
 
 // Client represents the SQL Jobber API client.

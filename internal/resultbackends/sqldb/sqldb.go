@@ -8,7 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -32,7 +32,7 @@ type Opt struct {
 type SqlDB struct {
 	db     *sql.DB
 	opt    Opt
-	logger *log.Logger
+	logger *slog.Logger
 
 	// The result schemas (CREATE TABLE ...) are dynamically
 	// generated everytime queries are executed based on their result columns.
@@ -64,7 +64,7 @@ type insertSchema struct {
 }
 
 // NewSQLBackend returns a new sqlDB result backend instance.
-func NewSQLBackend(db *sql.DB, opt Opt, lo *log.Logger) (*SqlDB, error) {
+func NewSQLBackend(db *sql.DB, opt Opt, lo *slog.Logger) (*SqlDB, error) {
 	s := SqlDB{
 		db:              db,
 		opt:             opt,

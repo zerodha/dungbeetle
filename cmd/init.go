@@ -155,8 +155,8 @@ func initCore(ko *koanf.Koanf) *core.Core {
 	// Initialize the server and load SQL tasks.
 	co := core.New(core.Opt{
 		DefaultQueue:            ko.MustString("queue"),
-		DefaultJobTTL:           time.Second * 10,
-		DefaultGroupConcurrency: 1,
+		DefaultGroupConcurrency: ko.MustInt("worker-concurrency"),
+		DefaultJobTTL:           time.Duration(ko.MustInt("job-ttl")) * time.Second,
 		Results:                 rResult,
 		Broker:                  rBroker,
 	}, srcPool, backends, lo)

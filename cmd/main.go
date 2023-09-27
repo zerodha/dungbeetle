@@ -43,6 +43,7 @@ func init() {
 	f.String("queue", "default", "name of the job queue to accept jobs from")
 	f.String("worker-name", "default", "name of this worker instance")
 	f.Int("worker-concurrency", 10, "number of concurrent worker threads to run")
+	f.Int("job-ttl", 60, "maximum time (in seconds) allowed for a job to run once it has started execution")
 	f.Bool("worker-only", false, "don't start the web server and run in worker-only mode")
 	f.Bool("version", false, "show current version and build")
 	f.Parse(os.Args[1:])

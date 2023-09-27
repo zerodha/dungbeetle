@@ -31,6 +31,7 @@ type JobResp struct {
 type JobStatusResp struct {
 	JobID string `json:"job_id"`
 	State string `json:"state"`
+	Count int    `json:"count"`
 	Error string `json:"error"`
 }
 

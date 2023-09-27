@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -203,6 +204,18 @@ func (co *Core) GetJobGroupStatus(groupID string) (models.GroupStatusResp, error
 			return models.GroupStatusResp{}, err
 		}
 
+		res, err := co.q.GetResult(ctx, uuid)
+		if err != nil {
+			co.lo.Error("error fetching job results", "error", err)
+			return models.GroupStatusResp{}, err
+		}
+
+		rowCount, err := strconv.Atoi(string(res))
+		if err != nil {
+			co.lo.Error("error converting row count to int", "error", err)
+			return models.GroupStatusResp{}, err
+		}
+
 		state, err := getState(status)
 		if err != nil {
 			co.lo.Error("error fetching job status mapping", "error", err)
@@ -213,6 +226,7 @@ func (co *Core) GetJobGroupStatus(groupID string) (models.GroupStatusResp, error
 			JobID: uuid,
 			State: state,
 			Error: jMsg.PrevErr,
+			Count: rowCount,
 		})
 
 	}
@@ -406,7 +420,8 @@ func (co *Core) initQueue() (*tasqueue.Server, error) {
 	}
 
 	// Register every SQL ready tasks in the queue system as a job function.
-	for name, query := range co.tasks {
+	for name := range co.tasks {
+		query := co.tasks[name]
 		err := qs.RegisterTask(string(name), func(b []byte, jctx tasqueue.JobCtx) error {
 			if _, err := qs.GetJob(context.Background(), jctx.Meta.ID); err != nil {
 				return err
@@ -417,8 +432,12 @@ func (co *Core) initQueue() (*tasqueue.Server, error) {
 				return fmt.Errorf("could not unmarshal args : %w", err)
 			}
 
-			_, err = co.execJob(jctx.Meta.ID, name, args.DB, time.Duration(args.TTL)*time.Second, args.Args, query)
-			return err
+			count, err := co.execJob(jctx.Meta.ID, name, args.DB, time.Duration(args.TTL)*time.Second, args.Args, query)
+			if err != nil {
+				return fmt.Errorf("could not execute job : %w", err)
+			}
+
+			return jctx.Save([]byte(strconv.Itoa(int(count))))
 		}, tasqueue.TaskOpts{
 			Concurrency: uint32(query.Conc),
 			Queue:       query.Queue,

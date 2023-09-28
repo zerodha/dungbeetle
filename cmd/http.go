@@ -21,8 +21,6 @@ func handleGetTasksList(w http.ResponseWriter, r *http.Request) {
 		co = r.Context().Value("core").(*core.Core)
 	)
 
-	lo.Debug("received http request", "handler", "get task list")
-
 	tasks := co.GetTasks()
 
 	// Full task including SQL queries.
@@ -48,8 +46,6 @@ func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 		jobID = chi.URLParam(r, "jobID")
 	)
 
-	lo.Debug("received http request", "handler", "get job status", "job_id", jobID)
-
 	out, err := co.GetJobStatus(jobID)
 	if err != nil {
 		lo.Error("could not get job status", "error", err, "job_id", jobID)
@@ -68,8 +64,6 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 		groupID = chi.URLParam(r, "groupID")
 	)
 
-	lo.Debug("received http request", "handler", "get group status", "group_id", groupID)
-
 	out, err := co.GetJobGroupStatus(groupID)
 	if err != nil {
 		lo.Error("could not get group job status", "error", err, "group_id", groupID)
@@ -86,8 +80,6 @@ func handleGetPendingJobs(w http.ResponseWriter, r *http.Request) {
 		co    = r.Context().Value("core").(*core.Core)
 		queue = chi.URLParam(r, "queue")
 	)
-
-	lo.Debug("received http request", "handler", "get pending jobs")
 
 	out, err := co.GetPendingJobs(queue)
 	if err != nil {
@@ -106,8 +98,6 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 
 		taskName = chi.URLParam(r, "taskName")
 	)
-
-	lo.Debug("received http request", "handler", "post job", "task_name", taskName)
 
 	if r.ContentLength == 0 {
 		lo.Error("request body sent empty")
@@ -150,8 +140,6 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 		req     models.GroupReq
 	)
 
-	lo.Debug("received http request", "handler", "post job group", "request", req)
-
 	if err := decoder.Decode(&req); err != nil {
 		lo.Error("error parsing JSON body", "error", err, "request", req)
 		sendErrorResponse(w, "error parsing JSON body", http.StatusBadRequest)
@@ -178,8 +166,6 @@ func handleCancelJob(w http.ResponseWriter, r *http.Request) {
 		purge, _ = strconv.ParseBool(r.URL.Query().Get("purge"))
 	)
 
-	lo.Debug("received http request", "handler", "cancel job", "job_id", jobID, "purge", purge)
-
 	if err := co.CancelJob(jobID, purge); err != nil {
 		lo.Error("could not cancel job", "error", err, "job_id", jobID)
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
@@ -197,8 +183,6 @@ func handleCancelGroupJob(w http.ResponseWriter, r *http.Request) {
 		groupID  = chi.URLParam(r, "groupID")
 		purge, _ = strconv.ParseBool(r.URL.Query().Get("purge"))
 	)
-
-	lo.Debug("received http request", "handler", "cancel group job", "group_id", groupID, "purge", purge)
 
 	// Get state of group.
 	if err := co.CancelJobGroup(groupID, purge); err != nil {

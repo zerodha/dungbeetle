@@ -1,8 +1,8 @@
 [app]
 # log level is one of : INFO, DEBUG, ERROR
 log_level = "INFO"
-# maximum time (in seconds) allowed for a job to run once it has started execution
-job_ttl = "60s"
+# maximum time allowed for a job to run once it has started execution
+default_job_ttl = "60s"
 
 # The broker that manages job queuing.
 # Currently, only "redis" is supported.

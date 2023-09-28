@@ -49,6 +49,14 @@ func initHTTP(co *core.Core) {
 	// Middleware to attach the instance of core to every handler.
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			lo.Debug("server received request",
+				"method", r.Method,
+				"header", r.Header,
+				"uri", r.RequestURI,
+				"remote-address", r.RemoteAddr,
+				"content-length", r.ContentLength,
+				"form", r.Form,
+			)
 			ctx := context.WithValue(r.Context(), "core", co)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -159,7 +167,7 @@ func initCore(ko *koanf.Koanf) (*core.Core, error) {
 	co := core.New(core.Opt{
 		DefaultQueue:            ko.MustString("queue"),
 		DefaultGroupConcurrency: ko.MustInt("worker-concurrency"),
-		DefaultJobTTL:           ko.MustDuration("app.job_ttl"),
+		DefaultJobTTL:           ko.MustDuration("app.default_job_ttl"),
 		Results:                 rResult,
 		Broker:                  rBroker,
 	}, srcPool, backends, lo)

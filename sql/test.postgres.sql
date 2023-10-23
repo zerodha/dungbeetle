@@ -17,3 +17,7 @@ SELECT * FROM entries WHERE user_id = $1;
 
 -- name: get_profit_entries_by_date
 SELECT * FROM entries WHERE user_id = $1 AND timestamp > $2 and timestamp < $3;
+
+-- name: slow_query 
+-- db: my_db
+SELECT pg_sleep($1);

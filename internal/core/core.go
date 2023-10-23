@@ -204,16 +204,21 @@ func (co *Core) GetJobGroupStatus(groupID string) (models.GroupStatusResp, error
 			return models.GroupStatusResp{}, err
 		}
 
+		// Try fetching the job's result and ignore in case
+		// the result is not found (job could be processing)
 		res, err := co.q.GetResult(ctx, uuid)
-		if err != nil {
+		if err != nil && !errors.Is(err, tasqueue.ErrNotFound) {
 			co.lo.Error("error fetching job results", "error", err)
 			return models.GroupStatusResp{}, err
 		}
 
-		rowCount, err := strconv.Atoi(string(res))
-		if err != nil {
-			co.lo.Error("error converting row count to int", "error", err)
-			return models.GroupStatusResp{}, err
+		var rowCount int
+		if string(res) != "" {
+			rowCount, err = strconv.Atoi(string(res))
+			if err != nil {
+				co.lo.Error("error converting row count to int", "error", err)
+				return models.GroupStatusResp{}, err
+			}
 		}
 
 		state, err := getState(status)
@@ -575,20 +580,28 @@ func (co *Core) writeResults(jobID string, task Task, ttl time.Duration, rows *s
 	return numRows, nil
 }
 
+const (
+	StatusPending = "PENDING"
+	StatusStarted = "STARTED"
+	StatusFailure = "FAILURE"
+	StatusSuccess = "SUCCESS"
+	StatusRetry   = "RETRY"
+)
+
 // getState helps keep compatibility between different status conventions
 // of the job servers (tasqueue/machinery).
 func getState(st string) (string, error) {
 	switch st {
 	case tasqueue.StatusStarted:
-		return "PENDING", nil
+		return StatusPending, nil
 	case tasqueue.StatusProcessing:
-		return "STARTED", nil
+		return StatusStarted, nil
 	case tasqueue.StatusFailed:
-		return "FAILURE", nil
+		return StatusFailure, nil
 	case tasqueue.StatusDone:
-		return "SUCCESS", nil
+		return StatusSuccess, nil
 	case tasqueue.StatusRetrying:
-		return "RETRY", nil
+		return StatusRetry, nil
 	}
 
 	return "", fmt.Errorf("invalid status not found in mapping")

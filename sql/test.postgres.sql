@@ -8,16 +8,19 @@
 -- name: get_profit_summary
 -- db: my_db
 -- concurrency: 5
+-- queue: test
 SELECT SUM(amount) AS total, entry_date FROM entries WHERE user_id = $1 GROUP BY entry_date;
 
 -- name: get_profit_entries
 -- db: my_db
--- queue: summarise
+-- queue: test
 SELECT * FROM entries WHERE user_id = $1;
 
 -- name: get_profit_entries_by_date
+-- queue: test
 SELECT * FROM entries WHERE user_id = $1 AND timestamp > $2 and timestamp < $3;
 
 -- name: slow_query 
 -- db: my_db
+-- queue: test
 SELECT pg_sleep($1);

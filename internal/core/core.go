@@ -163,12 +163,30 @@ func (co *Core) GetPendingJobs(queue string) ([]tasqueue.JobMessage, error) {
 
 // GetJobStatus returns the status of a job.
 func (co *Core) GetJobStatus(jobID string) (models.JobStatusResp, error) {
-	out, err := co.q.GetJob(context.Background(), jobID)
+	ctx := context.Background()
+	out, err := co.q.GetJob(ctx, jobID)
 	if err == tasqueue.ErrNotFound {
 		return models.JobStatusResp{}, fmt.Errorf("job not found")
 	} else if err != nil {
 		co.lo.Error("error fetching job status", "error", err)
 		return models.JobStatusResp{}, err
+	}
+
+	// Try fetching the job's result and ignore in case
+	// the result is not found (job could be processing)
+	res, err := co.q.GetResult(ctx, jobID)
+	if err != nil && !errors.Is(err, tasqueue.ErrNotFound) {
+		co.lo.Error("error fetching job results", "error", err)
+		return models.JobStatusResp{}, err
+	}
+
+	var rowCount int
+	if string(res) != "" {
+		rowCount, err = strconv.Atoi(string(res))
+		if err != nil {
+			co.lo.Error("error converting row count to int", "error", err)
+			return models.JobStatusResp{}, err
+		}
 	}
 
 	state, err := getState(out.Status)
@@ -181,6 +199,7 @@ func (co *Core) GetJobStatus(jobID string) (models.JobStatusResp, error) {
 		JobID: out.ID,
 		State: state,
 		Error: out.PrevErr,
+		Count: rowCount,
 	}, nil
 }
 
@@ -197,42 +216,14 @@ func (co *Core) GetJobGroupStatus(groupID string) (models.GroupStatusResp, error
 	}
 
 	var jobs []models.JobStatusResp
-	for uuid, status := range groupMsg.JobStatus {
-		jMsg, err := co.q.GetJob(ctx, uuid)
+	for uuid := range groupMsg.JobStatus {
+		jobResp, err := co.GetJobStatus(uuid)
 		if err != nil {
-			co.lo.Error("error fetching job status", "error", err)
+			co.lo.Error("error fetching group job status", "error", err)
 			return models.GroupStatusResp{}, err
 		}
 
-		// Try fetching the job's result and ignore in case
-		// the result is not found (job could be processing)
-		res, err := co.q.GetResult(ctx, uuid)
-		if err != nil && !errors.Is(err, tasqueue.ErrNotFound) {
-			co.lo.Error("error fetching job results", "error", err)
-			return models.GroupStatusResp{}, err
-		}
-
-		var rowCount int
-		if string(res) != "" {
-			rowCount, err = strconv.Atoi(string(res))
-			if err != nil {
-				co.lo.Error("error converting row count to int", "error", err)
-				return models.GroupStatusResp{}, err
-			}
-		}
-
-		state, err := getState(status)
-		if err != nil {
-			co.lo.Error("error fetching job status mapping", "error", err)
-			return models.GroupStatusResp{}, err
-		}
-
-		jobs = append(jobs, models.JobStatusResp{
-			JobID: uuid,
-			State: state,
-			Error: jMsg.PrevErr,
-			Count: rowCount,
-		})
+		jobs = append(jobs, jobResp)
 
 	}
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -162,7 +163,8 @@ func (co *Core) GetPendingJobs(queue string) ([]tasqueue.JobMessage, error) {
 
 // GetJobStatus returns the status of a job.
 func (co *Core) GetJobStatus(jobID string) (models.JobStatusResp, error) {
-	out, err := co.q.GetJob(context.Background(), jobID)
+	ctx := context.Background()
+	out, err := co.q.GetJob(ctx, jobID)
 	if err == tasqueue.ErrNotFound {
 		return models.JobStatusResp{}, fmt.Errorf("job not found")
 	} else if err != nil {
@@ -170,10 +172,34 @@ func (co *Core) GetJobStatus(jobID string) (models.JobStatusResp, error) {
 		return models.JobStatusResp{}, err
 	}
 
+	// Try fetching the job's result and ignore in case
+	// the result is not found (job could be processing)
+	res, err := co.q.GetResult(ctx, jobID)
+	if err != nil && !errors.Is(err, tasqueue.ErrNotFound) {
+		co.lo.Error("error fetching job results", "error", err)
+		return models.JobStatusResp{}, err
+	}
+
+	var rowCount int
+	if string(res) != "" {
+		rowCount, err = strconv.Atoi(string(res))
+		if err != nil {
+			co.lo.Error("error converting row count to int", "error", err)
+			return models.JobStatusResp{}, err
+		}
+	}
+
+	state, err := getState(out.Status)
+	if err != nil {
+		co.lo.Error("error fetching job status mapping", "error", err)
+		return models.JobStatusResp{}, err
+	}
+
 	return models.JobStatusResp{
 		JobID: out.ID,
-		State: out.Status,
+		State: state,
 		Error: out.PrevErr,
+		Count: rowCount,
 	}, nil
 }
 
@@ -182,30 +208,22 @@ func (co *Core) GetJobGroupStatus(groupID string) (models.GroupStatusResp, error
 	ctx := context.Background()
 
 	groupMsg, err := co.q.GetGroup(ctx, groupID)
-	if err != nil {
+	if err == tasqueue.ErrNotFound {
+		return models.GroupStatusResp{}, fmt.Errorf("group not found")
+	} else if err != nil {
 		co.lo.Error("error fetching group status", "error", err)
 		return models.GroupStatusResp{}, err
 	}
 
 	var jobs []models.JobStatusResp
-	for uuid, status := range groupMsg.JobStatus {
-		jMsg, err := co.q.GetJob(ctx, uuid)
+	for uuid := range groupMsg.JobStatus {
+		jobResp, err := co.GetJobStatus(uuid)
 		if err != nil {
-			co.lo.Error("error fetching job status", "error", err)
+			co.lo.Error("error fetching group job status", "error", err)
 			return models.GroupStatusResp{}, err
 		}
 
-		state, err := getState(status)
-		if err != nil {
-			co.lo.Error("error fetching job status mapping", "error", err)
-			return models.GroupStatusResp{}, err
-		}
-
-		jobs = append(jobs, models.JobStatusResp{
-			JobID: uuid,
-			State: state,
-			Error: jMsg.PrevErr,
-		})
+		jobs = append(jobs, jobResp)
 
 	}
 
@@ -266,7 +284,10 @@ func (co *Core) CancelJobGroup(groupID string, purge bool) error {
 		// Get state of group ID to check if it has been completed or not.
 		s, err := co.q.GetGroup(context.Background(), groupID)
 		if err == tasqueue.ErrNotFound {
-			return errors.New("group not found")
+			return fmt.Errorf("group not found")
+		} else if err != nil {
+			co.lo.Error("error fetching group status", "error", err)
+			return err
 		}
 
 		// If the job is already complete, no go.
@@ -395,8 +416,9 @@ func (co *Core) initQueue() (*tasqueue.Server, error) {
 	}
 
 	// Register every SQL ready tasks in the queue system as a job function.
-	for name, query := range co.tasks {
-		qs.RegisterTask(string(name), func(b []byte, jctx tasqueue.JobCtx) error {
+	for name := range co.tasks {
+		query := co.tasks[name]
+		err := qs.RegisterTask(string(name), func(b []byte, jctx tasqueue.JobCtx) error {
 			if _, err := qs.GetJob(context.Background(), jctx.Meta.ID); err != nil {
 				return err
 			}
@@ -406,12 +428,19 @@ func (co *Core) initQueue() (*tasqueue.Server, error) {
 				return fmt.Errorf("could not unmarshal args : %w", err)
 			}
 
-			_, err = co.execJob(jctx.Meta.ID, name, args.DB, time.Duration(args.TTL)*time.Second, args.Args, query)
-			return err
+			count, err := co.execJob(jctx.Meta.ID, name, args.DB, time.Duration(args.TTL)*time.Second, args.Args, query)
+			if err != nil {
+				return fmt.Errorf("could not execute job : %w", err)
+			}
+
+			return jctx.Save([]byte(strconv.Itoa(int(count))))
 		}, tasqueue.TaskOpts{
 			Concurrency: uint32(query.Conc),
 			Queue:       query.Queue,
 		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return qs, nil
@@ -446,6 +475,9 @@ func (co *Core) execJob(jobID, taskName, dbName string, ttl time.Duration, args 
 	if task.Stmt != nil {
 		// Prepared query.
 		rows, err = task.Stmt.QueryContext(ctx, args...)
+		if err != nil {
+			return 0, fmt.Errorf("query preparation failed: %w", err)
+		}
 	} else {
 
 		if dbName != "" {
@@ -539,20 +571,28 @@ func (co *Core) writeResults(jobID string, task Task, ttl time.Duration, rows *s
 	return numRows, nil
 }
 
+const (
+	StatusPending = "PENDING"
+	StatusStarted = "STARTED"
+	StatusFailure = "FAILURE"
+	StatusSuccess = "SUCCESS"
+	StatusRetry   = "RETRY"
+)
+
 // getState helps keep compatibility between different status conventions
 // of the job servers (tasqueue/machinery).
 func getState(st string) (string, error) {
 	switch st {
 	case tasqueue.StatusStarted:
-		return "PENDING", nil
+		return StatusPending, nil
 	case tasqueue.StatusProcessing:
-		return "STARTED", nil
+		return StatusStarted, nil
 	case tasqueue.StatusFailed:
-		return "FAILURE", nil
+		return StatusFailure, nil
 	case tasqueue.StatusDone:
-		return "SUCCESS", nil
+		return StatusSuccess, nil
 	case tasqueue.StatusRetrying:
-		return "RETRY", nil
+		return StatusRetry, nil
 	}
 
 	return "", fmt.Errorf("invalid status not found in mapping")

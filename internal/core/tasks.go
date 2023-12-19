@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/knadh/goyesql/v2"
@@ -125,10 +126,19 @@ func (co *Core) loadTasks(dir string) (Tasks, error) {
 				queue = strings.TrimSpace(v)
 			}
 
+			conc := co.opt.DefaultGroupConcurrency
+			if v, ok := s.Tags["conc"]; ok {
+				conc, err = strconv.Atoi(strings.TrimSpace(v))
+				if err != nil {
+					return nil, err
+				}
+			}
+
 			co.lo.Info("loading task", "task", name, "type", typ, "db", srcDBs.GetNames(), "results", srcPool.GetNames(), "queue", queue)
 			tasks[name] = Task{
 				Name:           name,
 				Queue:          queue,
+				Conc:           conc,
 				Stmt:           stmt,
 				Raw:            s.Query,
 				DBs:            srcDBs,

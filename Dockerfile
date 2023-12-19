@@ -1,4 +1,4 @@
-FROM golang:1.12-alpine AS builder
+FROM golang:1.21-alpine AS builder
 RUN apk update && apk add make git
 WORKDIR /dungbeetle/
 COPY ./ ./

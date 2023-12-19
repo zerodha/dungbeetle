@@ -20,9 +20,10 @@ run:
 .PHONY: dist
 dist: build
 
+# Run tests in sequence
 .PHONY: test
 test:
-	go test ./...
+	go test ./... -v -p 1
 
 # Use goreleaser to do a dry run producing local builds.
 .PHONY: release-dry

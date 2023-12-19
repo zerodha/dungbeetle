@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"time"
 
 	bredis "github.com/kalbhor/tasqueue/v2/brokers/redis"
 	rredis "github.com/kalbhor/tasqueue/v2/results/redis"
@@ -27,7 +26,7 @@ var (
 
 func generateConfig() error {
 	if _, err := os.Stat("config.toml"); !os.IsNotExist(err) {
-		return errors.New("config.toml exists. Remove it to generate a new one.")
+		return errors.New("config.toml exists. Remove it to generate a new one")
 	}
 
 	// Generate config file.
@@ -50,6 +49,14 @@ func initHTTP(co *core.Core) {
 	// Middleware to attach the instance of core to every handler.
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			lo.Debug("server received request",
+				"method", r.Method,
+				"header", r.Header,
+				"uri", r.RequestURI,
+				"remote-address", r.RemoteAddr,
+				"content-length", r.ContentLength,
+				"form", r.Form,
+			)
 			ctx := context.WithValue(r.Context(), "core", co)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -68,40 +75,44 @@ func initHTTP(co *core.Core) {
 	r.Post("/groups", handlePostJobGroup)
 	r.Get("/groups/{groupID}", handleGetGroupStatus)
 
-	lo.Printf("starting HTTP server on %s", ko.String("server"))
-	lo.Println(http.ListenAndServe(ko.String("server"), r))
+	lo.Info("starting HTTP server", "address", ko.String("server"))
+	if err := http.ListenAndServe(ko.String("server"), r); err != nil {
+		lo.Error("shutting down http server", "error", err)
+	}
 	os.Exit(0)
 }
 
-func initCore(ko *koanf.Koanf) *core.Core {
+func initCore(ko *koanf.Koanf) (*core.Core, error) {
 	// Source DBs config.
 	var srcDBs map[string]dbpool.Config
 	if err := ko.Unmarshal("db", &srcDBs); err != nil {
-		lo.Fatalf("error reading source DB config: %v", err)
+		lo.Error("error reading source DB config", "error", err)
+		return nil, fmt.Errorf("error reading source DB config : %w", err)
 	}
 	if len(srcDBs) == 0 {
-		lo.Fatal("found 0 source databases in config")
+		lo.Error("found 0 source databases in config")
+		return nil, fmt.Errorf("found 0 source databases in config")
 	}
 
 	// Result DBs config.
 	var resDBs map[string]dbpool.Config
 	if err := ko.Unmarshal("results", &resDBs); err != nil {
-		lo.Fatalf("error reading source DB config: %v", err)
+		return nil, fmt.Errorf("error reading source DB config: %w", err)
 	}
 	if len(resDBs) == 0 {
-		lo.Fatal("found 0 result backends in config")
+		return nil, fmt.Errorf("found 0 result backends in config")
 	}
 
 	// Connect to source DBs.
 	srcPool, err := dbpool.New(srcDBs)
 	if err != nil {
-		lo.Fatal(err)
+		return nil, err
 	}
 
 	// Connect to result DBs.
 	resPool, err := dbpool.New(resDBs)
 	if err != nil {
-		lo.Fatal(err)
+		return nil, err
 	}
 
 	// Initialize the result backend controller for every backend.
@@ -115,17 +126,17 @@ func initCore(ko *koanf.Koanf) *core.Core {
 
 		backend, err := sqldb.NewSQLBackend(db, opt, lo)
 		if err != nil {
-			lo.Fatalf("error initializing result backend: %v", err)
+			return nil, fmt.Errorf("error initializing result backend: %w", err)
 		}
 
 		backends[name] = backend
 	}
 
 	if v := ko.MustString("job_queue.broker.type"); v != "redis" {
-		lo.Fatalf("unsupported job_queue.broker.type '%s'. Only 'redis' is supported.", v)
+		return nil, fmt.Errorf("unsupported job_queue.broker.type '%s'. Only 'redis' is supported.", v)
 	}
 	if v := ko.MustString("job_queue.state.type"); v != "redis" {
-		lo.Fatalf("unsupported job_queue.state.type '%s'. Only 'redis' is supported.", v)
+		return nil, fmt.Errorf("unsupported job_queue.state.type '%s'. Only 'redis' is supported.", v)
 	}
 
 	lo := slog.Default()
@@ -155,15 +166,14 @@ func initCore(ko *koanf.Koanf) *core.Core {
 	// Initialize the server and load SQL tasks.
 	co := core.New(core.Opt{
 		DefaultQueue:            ko.MustString("queue"),
-		DefaultJobTTL:           time.Second * 10,
-		DefaultGroupConcurrency: 1,
+		DefaultGroupConcurrency: ko.MustInt("worker-concurrency"),
+		DefaultJobTTL:           ko.MustDuration("app.default_job_ttl"),
 		Results:                 rResult,
 		Broker:                  rBroker,
 	}, srcPool, backends, lo)
 	if err := co.LoadTasks(ko.MustStrings("sql-directory")); err != nil {
-		lo.Error("could not load tasks", "error", err)
-		return nil
+		return nil, fmt.Errorf("error loading tasks : %w", err)
 	}
 
-	return co
+	return co, nil
 }

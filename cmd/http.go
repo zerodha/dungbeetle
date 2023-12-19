@@ -11,9 +11,6 @@ import (
 	"github.com/zerodha/dungbeetle/models"
 )
 
-// groupConcurrency represents the concurrency factor for job groups.
-const groupConcurrency = 5
-
 // reValidateName represents the character classes allowed in a job ID.
 var reValidateName = regexp.MustCompile("(?i)^[a-z0-9-_:]+$")
 
@@ -34,12 +31,11 @@ func handleGetTasksList(w http.ResponseWriter, r *http.Request) {
 
 	// Just the names.
 	out := make([]string, 0, len(tasks))
-	for name, _ := range tasks {
+	for name := range tasks {
 		out = append(out, name)
 	}
 
 	sendResponse(w, out)
-	return
 }
 
 // handleGetJobStatus returns the status of a given jobID.
@@ -52,6 +48,7 @@ func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 
 	out, err := co.GetJobStatus(jobID)
 	if err != nil {
+		lo.Error("could not get job status", "error", err, "job_id", jobID)
 		sendErrorResponse(w, "job not found", http.StatusNotFound)
 		return
 	}
@@ -69,6 +66,7 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 
 	out, err := co.GetJobGroupStatus(groupID)
 	if err != nil {
+		lo.Error("could not get group job status", "error", err, "group_id", groupID)
 		sendErrorResponse(w, err.Error(), http.StatusNotFound)
 		return
 	}
@@ -79,11 +77,13 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 // handleGetPendingJobs returns pending jobs in a given queue.
 func handleGetPendingJobs(w http.ResponseWriter, r *http.Request) {
 	var (
-		co = r.Context().Value("core").(*core.Core)
+		co    = r.Context().Value("core").(*core.Core)
+		queue = chi.URLParam(r, "queue")
 	)
 
-	out, err := co.GetPendingJobs(chi.URLParam(r, "queue"))
+	out, err := co.GetPendingJobs(queue)
 	if err != nil {
+		lo.Error("could not get pending jobs", "error", err, "queue", queue)
 		sendErrorResponse(w, "error fetching pending tasks", http.StatusInternalServerError)
 		return
 	}
@@ -100,6 +100,7 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if r.ContentLength == 0 {
+		lo.Error("request body sent empty")
 		sendErrorResponse(w, "request body is empty", http.StatusBadRequest)
 		return
 	}
@@ -109,7 +110,7 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 		req     models.JobReq
 	)
 	if err := decoder.Decode(&req); err != nil {
-		lo.Printf("error parsing request JSON: %v", err)
+		lo.Error("error parsing request JSON", "error", err, "task_name", taskName, "request", req)
 		sendErrorResponse(w, "error parsing request JSON", http.StatusBadRequest)
 		return
 	}
@@ -122,6 +123,7 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 	// Create the job signature.
 	out, err := co.NewJob(req, taskName)
 	if err != nil {
+		lo.Error("could not create new job", "error", err, "task_name", taskName, "request", req)
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -139,14 +141,14 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err := decoder.Decode(&req); err != nil {
-		lo.Printf("error parsing JSON body: %v", err)
+		lo.Error("error parsing JSON body", "error", err, "request", req)
 		sendErrorResponse(w, "error parsing JSON body", http.StatusBadRequest)
 		return
 	}
 
 	out, err := co.NewJobGroup(req)
 	if err != nil {
-		lo.Printf("error creating job signature: %v", err)
+		lo.Error("error creating job signature", "error", err, "request", req)
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -165,6 +167,7 @@ func handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err := co.CancelJob(jobID, purge); err != nil {
+		lo.Error("could not cancel job", "error", err, "job_id", jobID)
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 	}
 
@@ -183,6 +186,7 @@ func handleCancelGroupJob(w http.ResponseWriter, r *http.Request) {
 
 	// Get state of group.
 	if err := co.CancelJobGroup(groupID, purge); err != nil {
+		lo.Error("could not cancel group job", "error", err, "group_id", groupID)
 		sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -195,6 +199,7 @@ func sendResponse(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	out, err := json.Marshal(models.HTTPResp{Status: "success", Data: data})
 	if err != nil {
+		lo.Error("could marshal response", "error", err)
 		sendErrorResponse(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}

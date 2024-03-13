@@ -145,13 +145,13 @@ Often times, different queries have different priorities of execution. Some may 
 ```shell
 # Run the primary worker + HTTP control interface
 dungbeetle --config /path/to/config.toml --sql-directory /path/to/sql/dir \
-    --queue "high_priority" \
+	--queue "high_priority" \
     --worker-name "high_priority_worker" \
     --worker-concurrency 30
 
 # Run another worker on a different queue to handle low priority jobs
 dungbeetle --config /path/to/config.toml --sql-directory /path/to/sql/dir \
-    --queue "low_priority" \
+	--queue "low_priority" \
     --worker-name "low_priority_worker" \
     --worker-concurrency 5 \
     --worker-only

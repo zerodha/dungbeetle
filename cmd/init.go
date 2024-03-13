@@ -27,7 +27,7 @@ var (
 	efs embed.FS
 )
 
-func initConfig() {
+func initConfig(ko *koanf.Koanf) {
 	lo.Info("buildstring", "value", buildString)
 
 	// Command line flags.

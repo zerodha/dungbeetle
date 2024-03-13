@@ -24,6 +24,8 @@ var (
 )
 
 func main() {
+	initConfig(ko)
+
 	if ko.Bool("version") {
 		lo.Info("version", "value", buildString)
 		os.Exit(0)

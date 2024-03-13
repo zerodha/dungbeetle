@@ -1,0 +1,71 @@
+[app]
+# log level is one of : INFO, DEBUG, ERROR
+log_level = "DEBUG"
+# maximum time allowed for a job to run once it has started execution
+default_job_ttl = "60s"
+
+# The broker that manages job queuing.
+# Currently, only "redis" is supported.
+[job_queue.broker]
+type = "redis"
+addresses = ["localhost:6379"]
+password = ""
+db = 1
+max_active = 50
+max_idle = 20
+dial_timeout = "1s"
+read_timeout = "1s"
+write_timeout = "1s"
+
+# The state store where the state of the jobs in the queue and their
+# metadata are maintained.
+# Currently, only "redis" is supported.
+[job_queue.state]
+type = "redis"
+addresses = ["localhost:6379"]
+password = ""
+db = 1
+max_active = 50
+max_idle = 20
+dial_timeout = "1s"
+read_timeout = "1s"
+write_timeout = "1s"
+expiry = "30s"
+meta_expiry = "3600s"
+
+# These are the result backends where the results of various SQL query jobs are saved.
+# There can be more than one backends defined here, for eg: [results.my1], [db.my2] ...
+# Each job can specify where its results should be stored.
+# If there are multiple backends and jobs don't specify
+# a particular backend, the results will be saved to a *random* one.
+# The optional `unlogged = true` (for postgres) creates faster, unlogged (WAL) tables.
+#
+# type = "postgres" dsn = "postgres://user:password@host:5432/dbname?sslmode=disable"
+# type = "mysql" dsn = "user:password@tcp(host:3306)/dbname"
+[results.my_results]
+type = "postgres"
+dsn = "postgres://testUser:testPass@localhost:5432/testDB?sslmode=disable"
+
+max_idle = 10
+max_active = 100
+connect_timeout = "10s"
+
+# Results table name. %s will be replaced by the job ID.
+results_table = "results_%s"
+
+
+# The map of the source databases against which SQL job queries
+# are executed. There can be one ore more named databases defined here, 
+# for instance, [db.mydb1], [db.mydb2] etc., each of which can
+# be individually attached to SQLjob queries in the sql files.
+
+# type = "postgres" dsn = "postgres://user:password@host:5432/dbname?sslmode=disable"
+# type = "mysql" dsn = "user:password@tcp(host:3306)/dbname"
+
+[db.my_db]
+type = "postgres"
+dsn = "postgres://testUser:testPass@127.0.0.1:5432/testDB?sslmode=disable"
+#dsn = "user:password@tcp(host:3306)/dbname"
+max_idle = 10
+max_active = 100
+connect_timeout = "10s"

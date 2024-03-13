@@ -2,6 +2,7 @@ on:
   push:
     branches:
       - master
+      - rebrand-fixes
   pull_request:
     branches:
       - master
@@ -46,7 +47,20 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: ${{ matrix.go-version }}
+    - name: Install Dependenies
+      run:  sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates postgresql-client
+
     - name: Checkout code
       uses: actions/checkout@v3
+
+    - name: Add tables
+      run: PGPASSWORD=testPass psql -U testUser -h localhost -p 5432 -d testDB -c 'CREATE TABLE entries (id BIGSERIAL PRIMARY KEY, amount REAL, user_id VARCHAR(6), entry_date DATE, timestamp TIMESTAMP)';
+   
+    - name: Build binary
+      run: CGO_ENABLED=0 go build -o server.bin -ldflags="-s -w -X 'main.buildString=${BUILDSTR}'" ./cmd/*.go
+   
+    - name: Run binary server
+      run:  ./server.bin --config config.test.toml &
+   
     - name: Run tests
-      run: go test ./cmd -v -covermode=count
+      run: sleep 5 && go test ./client -v -covermode=count

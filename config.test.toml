@@ -1,0 +1,44 @@
+[app]
+log_level = "DEBUG"
+default_job_ttl = "60s"
+
+[job_queue.broker]
+type = "redis"
+addresses = ["localhost:6379"]
+password = ""
+db = 1
+max_active = 50
+max_idle = 20
+dial_timeout = "1s"
+read_timeout = "1s"
+write_timeout = "1s"
+
+[job_queue.state]
+type = "redis"
+addresses = ["localhost:6379"]
+password = ""
+db = 1
+max_active = 50
+max_idle = 20
+dial_timeout = "1s"
+read_timeout = "1s"
+write_timeout = "1s"
+expiry = "30s"
+meta_expiry = "3600s"
+
+[results.my_results]
+type = "postgres"
+dsn = "postgres://testUser:testPass@localhost:5432/testDB?sslmode=disable"
+
+max_idle = 10
+max_active = 100
+connect_timeout = "10s"
+
+results_table = "results_%s"
+
+[db.my_db]
+type = "postgres"
+dsn = "postgres://testUser:testPass@127.0.0.1:5432/testDB?sslmode=disable"
+max_idle = 10
+max_active = 100
+connect_timeout = "10s"

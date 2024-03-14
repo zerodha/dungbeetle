@@ -1,32 +1,57 @@
-package main
+package core
 
 import (
 	"database/sql"
 	"fmt"
+	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
-	"github.com/knadh/goyesql"
+	"github.com/knadh/goyesql/v2"
+	"github.com/zerodha/dungbeetle/internal/dbpool"
 )
 
 // Task represents an SQL query with its prepared and raw forms.
 type Task struct {
-	Name           string
-	Queue          string
-	Stmt           *sql.Stmt `json:"-"`
-	Raw            string    `json:"raw"`
-	DBs            DBs
-	ResultBackends ResultBackends
+	Name           string         `json:"name"`
+	Queue          string         `json:"queue"`
+	Conc           int            `json:"concurrency"`
+	Stmt           *sql.Stmt      `json:"-"`
+	Raw            string         `json:"raw,omitempty"`
+	DBs            dbpool.Pool    `json:"-"`
+	ResultBackends ResultBackends `json:"-"`
 }
 
 // Tasks represents a map of prepared SQL statements.
 type Tasks map[string]Task
 
-// loadSQLTasks loads SQL queries from all the .sql
-// files in a given directory.
-func loadSQLTasks(dir string, dbs DBs, resBackends ResultBackends, defQueue string) (Tasks, error) {
+// LoadTasks loads SQL queries from all the .sql files in a given directory.
+func (co *Core) LoadTasks(dirs []string) error {
+	for _, d := range dirs {
+		co.lo.Info("loading SQL queries from directory", "dir", d)
+		tasks, err := co.loadTasks(d)
+		if err != nil {
+			return err
+		}
+
+		for t, q := range tasks {
+			if _, ok := co.tasks[t]; ok {
+				return fmt.Errorf("duplicate task %s", t)
+			}
+
+			co.tasks[t] = q
+		}
+
+		co.lo.Info("loaded tasks (SQL queries)", "count", len(tasks), "dir", d)
+	}
+
+	return nil
+}
+
+func (co *Core) loadTasks(dir string) (Tasks, error) {
 	// Discover .sql files.
-	files, err := filepath.Glob(dir + "/*.sql")
+	files, err := filepath.Glob(path.Join(dir, "*.sql"))
 	if err != nil {
 		return nil, fmt.Errorf("unable to read SQL directory %s: %v", dir, err)
 	}
@@ -48,9 +73,9 @@ func loadSQLTasks(dir string, dbs DBs, resBackends ResultBackends, defQueue stri
 				// DBs tagged specifically to queries in the SQL file,
 				// or will be the map of all avaliable DBs. During execution
 				// one of these DBs will be picked randomly.
-				dbsToAttach DBs
+				srcDBs dbpool.Pool
 
-				resBackendsToAttach ResultBackends
+				srcPool ResultBackends
 			)
 
 			// Query already exists.
@@ -60,24 +85,24 @@ func loadSQLTasks(dir string, dbs DBs, resBackends ResultBackends, defQueue stri
 
 			// Are there specific DB's tagged to the query?
 			if dbTag, ok := s.Tags["db"]; ok {
-				dbsToAttach, err = DBsFromTag(dbTag, dbs)
+				srcDBs, err = co.srcDBs.FilterByTags(strings.Split(dbTag, ","))
 				if err != nil {
 					return nil, fmt.Errorf("error loading query %s (%s): %v", name, f, err)
 				}
 			} else {
 				// No specific DBs. Attach all.
-				dbsToAttach = dbs
+				srcDBs = co.srcDBs
 			}
 
 			// Are there specific result backends tagged to the query?
 			if resTags, ok := s.Tags["results"]; ok {
-				resBackendsToAttach, err = resultBackendsFromTags(resTags, resBackends)
+				srcPool, err = filterResultBackends(strings.Split(resTags, ","), co.resultBackends)
 				if err != nil {
 					return nil, fmt.Errorf("error loading query %s (%s): %v", name, f, err)
 				}
 			} else {
 				// No specific DBs. Attach all.
-				resBackendsToAttach = resBackends
+				srcPool = co.resultBackends
 			}
 
 			// Prepare the statement?
@@ -87,7 +112,7 @@ func loadSQLTasks(dir string, dbs DBs, resBackends ResultBackends, defQueue stri
 			} else {
 				// Prepare the statement against all tagged DBs just to be sure.
 				typ = "prepared"
-				for _, db := range dbsToAttach {
+				for _, db := range srcDBs {
 					_, err := db.Prepare(s.Query)
 					if err != nil {
 						return nil, fmt.Errorf("error preparing SQL query %s: %v", name, err)
@@ -96,20 +121,28 @@ func loadSQLTasks(dir string, dbs DBs, resBackends ResultBackends, defQueue stri
 			}
 
 			// Is there a queue?
-			queue := defQueue
+			queue := co.opt.DefaultQueue
 			if v, ok := s.Tags["queue"]; ok {
 				queue = strings.TrimSpace(v)
 			}
 
-			sLog.Printf("-- task %s (%s) (db = %v) (results = %v) (queue = %v)", name, typ,
-				dbsToAttach.GetNames(), resBackendsToAttach.GetNames(), queue)
+			conc := co.opt.DefaultGroupConcurrency
+			if v, ok := s.Tags["conc"]; ok {
+				conc, err = strconv.Atoi(strings.TrimSpace(v))
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			co.lo.Info("loading task", "task", name, "type", typ, "db", srcDBs.GetNames(), "results", srcPool.GetNames(), "queue", queue)
 			tasks[name] = Task{
 				Name:           name,
 				Queue:          queue,
+				Conc:           conc,
 				Stmt:           stmt,
 				Raw:            s.Query,
-				DBs:            dbsToAttach,
-				ResultBackends: resBackendsToAttach,
+				DBs:            srcDBs,
+				ResultBackends: srcPool,
 			}
 		}
 	}

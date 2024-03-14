@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
 
-	"github.com/RichardKnop/machinery/v1/tasks"
-	"github.com/knadh/sql-jobber/models"
+	"github.com/kalbhor/tasqueue/v2"
+	"github.com/zerodha/dungbeetle/models"
 )
 
 const (
@@ -49,7 +48,7 @@ type httpResp struct {
 type Opt struct {
 	RootURL    string
 	HTTPClient *http.Client
-	Logger     *log.Logger
+	Logger     *slog.Logger
 }
 
 // Client represents the SQL Jobber API client.
@@ -98,8 +97,8 @@ func (c *Client) DeleteGroupJob(jobID string, purge bool) error {
 }
 
 // GetPendingJobs fetches the list of pending jobs.
-func (c *Client) GetPendingJobs(queue string) ([]tasks.Signature, error) {
-	var out []tasks.Signature
+func (c *Client) GetPendingJobs(queue string) ([]tasqueue.JobMessage, error) {
+	var out []tasqueue.JobMessage
 	err := c.doHTTPReq(http.MethodGet,
 		fmt.Sprintf(uriGetPendingJobs, queue), nil, nil, &out)
 	return out, err
@@ -121,7 +120,7 @@ func (c *Client) GetGroupStatus(groupID string) (models.GroupStatusResp, error) 
 }
 
 // doHTTPReq makes an HTTP request with the given params and on success, unmarshals
-// the JSON response from the sql-jobber upstream (the .data field in the response JSON)
+// the JSON response from the DungBeetle upstream (the .data field in the response JSON)
 // into the container obj.
 // reqBody can be an arbitrary struct or map for POST requests that'll be
 // marshalled as JSON and posted. For GET queries, it should be query params
@@ -172,11 +171,11 @@ func (c *Client) doHTTPReq(method, rURI string, reqBody interface{}, headers htt
 	}
 	defer func() {
 		// Drain and close the body to let the Transport reuse the connection
-		io.Copy(ioutil.Discard, r.Body)
+		io.Copy(io.Discard, r.Body)
 		r.Body.Close()
 	}()
 
-	body, err := ioutil.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return fmt.Errorf("error reading response: %v", err)
 	}

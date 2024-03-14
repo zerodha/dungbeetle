@@ -1,13 +1,19 @@
-package backends
+// Package sqldb is a general SQL DB backend implementation that takes an stdlib
+// sql.DB connection and creates tables and writes results to it.
+// It has explicit support for MySQL and PostGres for handling differences in
+// SQL dialects, but should ideally work with any standard SQL backend.
+package sqldb
 
 import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/zerodha/dungbeetle/models"
 )
 
 const (
@@ -22,11 +28,11 @@ type Opt struct {
 	UnloggedTables bool
 }
 
-// sqlDB represents the sqlDB backend.
-type sqlDB struct {
+// SqlDB represents the SqlDB backend.
+type SqlDB struct {
 	db     *sql.DB
 	opt    Opt
-	logger *log.Logger
+	logger *slog.Logger
 
 	// The result schemas (CREATE TABLE ...) are dynamically
 	// generated everytime queries are executed based on their result columns.
@@ -35,9 +41,9 @@ type sqlDB struct {
 	schemaMutex     sync.RWMutex
 }
 
-// sqlDBWriter represents a writer that saves results
+// SQLDBResultSet represents a writer that saves results
 // to a sqlDB backend.
-type sqlDBWriter struct {
+type SQLDBResultSet struct {
 	jobID       string
 	taskName    string
 	colsWritten bool
@@ -46,7 +52,7 @@ type sqlDBWriter struct {
 	tx          *sql.Tx
 	tbl         string
 
-	backend *sqlDB
+	backend *SqlDB
 }
 
 // insertSchema contains the generated SQL for creating tables
@@ -58,14 +64,13 @@ type insertSchema struct {
 }
 
 // NewSQLBackend returns a new sqlDB result backend instance.
-// It accepts an *sql.DB connection
-func NewSQLBackend(db *sql.DB, opt Opt, l *log.Logger) (ResultBackend, error) {
-	s := sqlDB{
+func NewSQLBackend(db *sql.DB, opt Opt, lo *slog.Logger) (*SqlDB, error) {
+	s := SqlDB{
 		db:              db,
 		opt:             opt,
 		resTableSchemas: make(map[string]insertSchema),
 		schemaMutex:     sync.RWMutex{},
-		logger:          l,
+		logger:          lo,
 	}
 
 	// Config.
@@ -81,13 +86,13 @@ func NewSQLBackend(db *sql.DB, opt Opt, l *log.Logger) (ResultBackend, error) {
 // NewResultSet returns a new instance of an sqlDB result writer.
 // A new instance should be acquired for every individual job result
 // to be written to the backend and then thrown away.
-func (s *sqlDB) NewResultSet(jobID, taskName string, ttl time.Duration) (ResultSet, error) {
+func (s *SqlDB) NewResultSet(jobID, taskName string, ttl time.Duration) (models.ResultSet, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 
-	return &sqlDBWriter{
+	return &SQLDBResultSet{
 		jobID:    jobID,
 		taskName: taskName,
 		backend:  s,
@@ -101,7 +106,7 @@ func (s *sqlDB) NewResultSet(jobID, taskName string, ttl time.Duration) (ResultS
 // creates a CREATE TABLE() schema for the results table with the structure of the
 // particular taskName, and caches it be used for every subsequent result db creation
 // and population. This should only be called once for each kind of taskName.
-func (w *sqlDBWriter) RegisterColTypes(cols []string, colTypes []*sql.ColumnType) error {
+func (w *SQLDBResultSet) RegisterColTypes(cols []string, colTypes []*sql.ColumnType) error {
 	if w.IsColTypesRegistered() {
 		return errors.New("column types are already registered")
 	}
@@ -139,7 +144,7 @@ func (w *sqlDBWriter) RegisterColTypes(cols []string, colTypes []*sql.ColumnType
 
 // IsColTypesRegistered checks whether the column types for a particular taskName's
 // structure is registered in the backend.
-func (w *sqlDBWriter) IsColTypesRegistered() bool {
+func (w *SQLDBResultSet) IsColTypesRegistered() bool {
 	w.backend.schemaMutex.RLock()
 	_, ok := w.backend.resTableSchemas[w.taskName]
 	w.backend.schemaMutex.RUnlock()
@@ -151,7 +156,7 @@ func (w *sqlDBWriter) IsColTypesRegistered() bool {
 // Internally, it creates a sqlDB database and creates a results table
 // based on the schema RegisterColTypes() would've created and cached.
 // This should only be called once on a ResultWriter instance.
-func (w *sqlDBWriter) WriteCols(cols []string) error {
+func (w *SQLDBResultSet) WriteCols(cols []string) error {
 	if w.colsWritten {
 		return fmt.Errorf("columns for '%s' are already written", w.taskName)
 	}
@@ -187,7 +192,7 @@ func (w *sqlDBWriter) WriteCols(cols []string) error {
 
 // WriteRow writes an individual row from a result set to the backend.
 // Internally, it INSERT()s the given row into the sqlDB results table.
-func (w *sqlDBWriter) WriteRow(row []interface{}) error {
+func (w *SQLDBResultSet) WriteRow(row []interface{}) error {
 	w.backend.schemaMutex.RLock()
 	rSchema, ok := w.backend.resTableSchemas[w.taskName]
 	w.backend.schemaMutex.RUnlock()
@@ -202,7 +207,7 @@ func (w *sqlDBWriter) WriteRow(row []interface{}) error {
 }
 
 // Flush flushes the rows written into the sqlDB pipe.
-func (w *sqlDBWriter) Flush() error {
+func (w *SQLDBResultSet) Flush() error {
 	err := w.tx.Commit()
 	if err != nil {
 		return err
@@ -212,7 +217,7 @@ func (w *sqlDBWriter) Flush() error {
 }
 
 // Close closes the active sqlDB connection.
-func (w *sqlDBWriter) Close() error {
+func (w *SQLDBResultSet) Close() error {
 	if w.tx != nil {
 		return w.tx.Rollback()
 	}
@@ -222,7 +227,7 @@ func (w *sqlDBWriter) Close() error {
 
 // createTableSchema takes an SQL query results, gets its column names and types,
 // and generates a sqlDB CREATE TABLE() schema for the results.
-func (s *sqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) insertSchema {
+func (s *SqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) insertSchema {
 	var (
 		colNameHolder = make([]string, len(cols))
 		colValHolder  = make([]string, len(cols))

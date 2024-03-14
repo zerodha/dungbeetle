@@ -1,6 +1,4 @@
-// Package backends provides interfaces to write backends for
-// SQL Jobber that take and store results from executed SQL jobs.
-package backends
+package models
 
 import (
 	"database/sql"
@@ -13,8 +11,7 @@ type ResultBackend interface {
 	NewResultSet(dbName, taskName string, ttl time.Duration) (ResultSet, error)
 }
 
-// ResultSet represents the set of results from an individual
-// job that's executed.
+// ResultSet represents the set of results from an individual job that's executed.
 type ResultSet interface {
 	RegisterColTypes([]string, []*sql.ColumnType) error
 	IsColTypesRegistered() bool

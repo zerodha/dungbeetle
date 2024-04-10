@@ -1,4 +1,4 @@
-module github.com/zerodha/dungbeetle
+module github.com/zerodha/dungbeetle/v2
 
 go 1.21
 

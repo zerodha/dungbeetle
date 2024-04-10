@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/zerodha/dungbeetle/models"
+	"github.com/zerodha/dungbeetle/v2/models"
 )
 
 const (

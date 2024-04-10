@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"strings"
 
-	"github.com/zerodha/dungbeetle/models"
+	"github.com/zerodha/dungbeetle/v2/models"
 )
 
 // ResultBackends represents a map of result writing backends (sql DBs).

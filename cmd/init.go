@@ -17,9 +17,9 @@ import (
 	"github.com/knadh/koanf/providers/posflag"
 	"github.com/knadh/koanf/v2"
 	flag "github.com/spf13/pflag"
-	"github.com/zerodha/dungbeetle/internal/core"
-	"github.com/zerodha/dungbeetle/internal/dbpool"
-	"github.com/zerodha/dungbeetle/internal/resultbackends/sqldb"
+	"github.com/zerodha/dungbeetle/v2/internal/core"
+	"github.com/zerodha/dungbeetle/v2/internal/dbpool"
+	"github.com/zerodha/dungbeetle/v2/internal/resultbackends/sqldb"
 )
 
 var (

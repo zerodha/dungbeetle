@@ -13,8 +13,8 @@ import (
 	uuid "github.com/gofrs/uuid/v5"
 	"github.com/kalbhor/tasqueue/v2"
 	"github.com/vmihailenco/msgpack"
-	"github.com/zerodha/dungbeetle/internal/dbpool"
-	"github.com/zerodha/dungbeetle/models"
+	"github.com/zerodha/dungbeetle/v2/internal/dbpool"
+	"github.com/zerodha/dungbeetle/v2/models"
 )
 
 // Opt represents core options.

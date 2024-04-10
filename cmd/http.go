@@ -7,8 +7,8 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/zerodha/dungbeetle/internal/core"
-	"github.com/zerodha/dungbeetle/models"
+	"github.com/zerodha/dungbeetle/v2/internal/core"
+	"github.com/zerodha/dungbeetle/v2/models"
 )
 
 // reValidateName represents the character classes allowed in a job ID.

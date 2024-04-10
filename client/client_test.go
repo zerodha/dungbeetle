@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/zerodha/dungbeetle/internal/core"
-	"github.com/zerodha/dungbeetle/models"
+	"github.com/zerodha/dungbeetle/v2/internal/core"
+	"github.com/zerodha/dungbeetle/v2/models"
 )
 
 var (

@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/knadh/goyesql/v2"
-	"github.com/zerodha/dungbeetle/internal/dbpool"
+	"github.com/zerodha/dungbeetle/v2/internal/dbpool"
 )
 
 // Task represents an SQL query with its prepared and raw forms.

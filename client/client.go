@@ -11,7 +11,7 @@ import (
 	"strconv"
 
 	"github.com/kalbhor/tasqueue/v2"
-	"github.com/zerodha/dungbeetle/models"
+	"github.com/zerodha/dungbeetle/v2/models"
 )
 
 const (

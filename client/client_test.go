@@ -27,6 +27,21 @@ var (
 			Queue:    "test",
 			Retries:  3,
 		}}
+	group = models.GroupReq{
+		GroupID: "testgroup",
+		Jobs: []models.JobReq{
+			{
+				JobID:    "job1_group",
+				TaskName: "get_profit_summary",
+				Queue:    "test",
+				Retries:  4,
+			}, {
+				JobID:    "job2_group",
+				TaskName: "get_profit_summary",
+				Queue:    "test",
+				Retries:  3,
+			}},
+	}
 
 	jobsPending = []models.JobReq{{
 		JobID:    "job3",
@@ -146,13 +161,10 @@ func TestDeleteJob(t *testing.T) {
 }
 
 func TestPostJobGroup(t *testing.T) {
-	_, err := cl.PostJobGroup(models.GroupReq{
-		GroupID: "testgroup",
-		Jobs:    jobs,
-	})
+	_, err := cl.PostJobGroup(group)
 	assert.NoError(t, err, "error posting job group")
 }
 func TestGetJobGroupStatus(t *testing.T) {
-	_, err := cl.GetGroupStatus("testgroup")
+	_, err := cl.GetGroupStatus(group.GroupID)
 	assert.NoError(t, err, "error getting job group status")
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -15,6 +16,11 @@ import (
 	"github.com/vmihailenco/msgpack"
 	"github.com/zerodha/dungbeetle/v2/internal/dbpool"
 	"github.com/zerodha/dungbeetle/v2/models"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 )
 
 // Opt represents core options.
@@ -22,6 +28,10 @@ type Opt struct {
 	DefaultQueue            string
 	DefaultGroupConcurrency int
 	DefaultJobTTL           time.Duration
+
+	// Optional tracing parameters
+	EnableTracing bool
+	TraceFilePath string
 
 	// DSNs for connecting to the broker backend and the broker state backend.
 	Broker  tasqueue.Broker
@@ -400,17 +410,64 @@ type taskMeta struct {
 	TTL  int           `json:"ttl"`
 }
 
+func initTracer(lo *slog.Logger, fpath string) (*trace.TracerProvider, error) {
+	// Write telemetry data to a file.
+	f, err := os.Create(fpath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	exp, err := stdouttrace.New(
+		stdouttrace.WithWriter(f),
+		// Use human-readable output.
+		stdouttrace.WithPrettyPrint(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	r, err := resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceNameKey.String("dungbeetle"),
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tp := trace.NewTracerProvider(trace.WithBatcher(exp), trace.WithResource(r))
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			lo.Error("error shutting down trace-provider", "error", err)
+		}
+	}()
+	otel.SetTracerProvider(tp)
+
+	return tp, nil
+}
+
 // initQueue creates and returns a distributed queue system (Tasqueue) and registers
 // Tasks (SQL queries) to be executed. The queue system uses a broker (eg: Kafka) and stores
 // job states in a state store (eg: Redis)
 func (co *Core) initQueue() (*tasqueue.Server, error) {
-	var err error
-	// TODO: set log level
-	qs, err := tasqueue.NewServer(tasqueue.ServerOpts{
+	opts := tasqueue.ServerOpts{
 		Broker:  co.opt.Broker,
 		Results: co.opt.Results,
 		Logger:  co.lo.Handler(),
-	})
+	}
+	if co.opt.EnableTracing {
+		tp, err := initTracer(co.lo, co.opt.TraceFilePath)
+		if err != nil {
+			return nil, err
+		}
+		opts.TraceProvider = tp
+	}
+
+	// TODO: set log level
+	qs, err := tasqueue.NewServer(opts)
 	if err != nil {
 		return nil, err
 	}

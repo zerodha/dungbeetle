@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -24,12 +25,14 @@ var (
 )
 
 func main() {
-	initConfig(ko)
+	initFlags(ko)
 
 	if ko.Bool("version") {
-		lo.Info("version", "value", buildString)
+		fmt.Println(buildString)
 		os.Exit(0)
 	}
+
+	initConfig(ko)
 
 	// Load environment variables and merge into the loaded config.
 	if err := ko.Load(env.Provider("DUNGBEETLE_", ".", func(s string) string {

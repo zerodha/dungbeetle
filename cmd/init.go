@@ -27,9 +27,7 @@ var (
 	efs embed.FS
 )
 
-func initConfig(ko *koanf.Koanf) {
-	lo.Info("buildstring", "value", buildString)
-
+func initFlags(ko *koanf.Koanf) {
 	// Command line flags.
 	f := flag.NewFlagSet("config", flag.ContinueOnError)
 	f.Usage = func() {
@@ -51,9 +49,13 @@ func initConfig(ko *koanf.Koanf) {
 
 	// Load commandline params.
 	ko.Load(posflag.Provider(f, ".", ko), nil)
+}
+
+func initConfig(ko *koanf.Koanf) {
+	lo.Info("buildstring", "value", buildString)
 
 	// Generate new config file.
-	if ok, _ := f.GetBool("new-config"); ok {
+	if ok := ko.Bool("new-config"); ok {
 		if err := generateConfig(); err != nil {
 			fmt.Println(err)
 			os.Exit(1)

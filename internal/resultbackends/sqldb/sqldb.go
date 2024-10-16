@@ -187,7 +187,7 @@ func (w *SQLDBResultSet) WriteCols(cols []string) error {
 		return err
 	}
 
-	return err
+	return nil
 }
 
 // WriteRow writes an individual row from a result set to the backend.
@@ -234,7 +234,7 @@ func (s *SqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 	)
 
 	for i := range cols {
-		colNameHolder[i] = fmt.Sprintf(`"%s"`, cols[i])
+		colNameHolder[i] = s.quoteIdentifier(cols[i])
 
 		// This will be filled by the driver.
 		if s.opt.DBType == dbTypePostgres {
@@ -247,37 +247,35 @@ func (s *SqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 
 	var (
 		fields   = make([]string, len(cols))
-		typ      = ""
-		unlogged = ""
+		typ      string
+		unlogged string
 	)
 
 	for i := 0; i < len(cols); i++ {
 		typ = colTypes[i].DatabaseTypeName()
-		switch colTypes[i].DatabaseTypeName() {
-		case "INT2", "INT4", "INT8", // Postgres
-			"TINYINT", "SMALLINT", "INT", "MEDIUMINT", "BIGINT": // MySQL
+		switch typ {
+		case "INT2", "INT4", "INT8", "TINYINT", "SMALLINT", "INT", "MEDIUMINT", "BIGINT":
 			typ = "BIGINT"
-		case "FLOAT4", "FLOAT8", // Postgres
-			"DECIMAL", "FLOAT", "DOUBLE", "NUMERIC": // MySQL
+		case "FLOAT4", "FLOAT8", "DECIMAL", "FLOAT", "DOUBLE", "NUMERIC":
 			typ = "DECIMAL"
-		case "TIMESTAMP", // Postgres, MySQL
-			"DATETIME": // MySQL
+		case "TIMESTAMP", "DATETIME":
 			typ = "TIMESTAMP"
-		case "DATE": // Postgres, MySQL
+		case "DATE":
 			typ = "DATE"
-		case "BOOLEAN": // Postgres, MySQL
+		case "BOOLEAN":
 			typ = "BOOLEAN"
-		case "JSON", "JSONB": // Postgres
+		case "JSON", "JSONB":
+			if s.opt.DBType == dbTypePostgres {
+				typ = "JSONB"
+			} else {
+				typ = "JSON"
+			}
+		case "_INT4", "_INT8", "_TEXT":
 			if s.opt.DBType != dbTypePostgres {
 				typ = "TEXT"
 			}
-		// _INT4, _INT8, _TEXT represent array types in Postgres
-		case "_INT4": // Postgres
-			typ = "_INT4"
-		case "_INT8": // Postgres
-			typ = "_INT8"
-		case "_TEXT": // Postgres
-			typ = "_TEXT"
+		case "VARCHAR":
+			typ = "VARCHAR(255)"
 		default:
 			typ = "TEXT"
 		}
@@ -286,7 +284,7 @@ func (s *SqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 			typ += " NOT NULL"
 		}
 
-		fields[i] = fmt.Sprintf(`"%s" %s`, cols[i], typ)
+		fields[i] = fmt.Sprintf("%s %s", s.quoteIdentifier(cols[i]), typ)
 	}
 
 	// If the DB is Postgres, optionally create an "unlogged" table that disables
@@ -297,9 +295,20 @@ func (s *SqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 	}
 
 	return insertSchema{
-		dropTable:   `DROP TABLE IF EXISTS "%s";`,
-		createTable: fmt.Sprintf(`CREATE %s TABLE IF NOT EXISTS "%%s" (%s);`, unlogged, strings.Join(fields, ",")),
-		insertRow: fmt.Sprintf(`INSERT INTO "%%s" (%s) VALUES (%s)`, strings.Join(colNameHolder, ","),
+		dropTable:   fmt.Sprintf("DROP TABLE IF EXISTS %s;", s.quoteIdentifier("%s")),
+		createTable: fmt.Sprintf("CREATE %s TABLE IF NOT EXISTS %s (%s);", unlogged, s.quoteIdentifier("%s"), strings.Join(fields, ",")),
+		insertRow: fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
+			s.quoteIdentifier("%s"),
+			strings.Join(colNameHolder, ","),
 			strings.Join(colValHolder, ",")),
 	}
+}
+
+// quoteIdentifier quotes an identifier (table or column name) based on the database type
+func (s *SqlDB) quoteIdentifier(name string) string {
+	if s.opt.DBType == dbTypePostgres {
+		return fmt.Sprintf(`"%s"`, name)
+	}
+	// MySQL uses backticks
+	return fmt.Sprintf("`%s`", name)
 }

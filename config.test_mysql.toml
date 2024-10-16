@@ -1,0 +1,43 @@
+[app]
+log_level = "DEBUG"
+default_job_ttl = "60s"
+
+[job_queue.broker]
+type = "redis"
+addresses = ["localhost:6379"]
+password = ""
+db = 1
+max_active = 50
+max_idle = 20
+dial_timeout = "1s"
+read_timeout = "1s"
+write_timeout = "1s"
+
+[job_queue.state]
+type = "redis"
+addresses = ["localhost:6379"]
+password = ""
+db = 1
+max_active = 50
+max_idle = 20
+dial_timeout = "1s"
+read_timeout = "1s"
+write_timeout = "1s"
+expiry = "30s"
+meta_expiry = "3600s"
+
+# Results database configuration (MySQL)
+[results.my_results]
+type = "mysql"
+dsn = "root:rootpassword@tcp(127.0.0.1:3306)/mydb"
+max_idle = 10
+max_active = 100
+connect_timeout = "10s"
+results_table = "results_%s"
+
+[db.my_db]
+type = "mysql"
+dsn = "root:rootpassword@tcp(127.0.0.1:3306)/mydb"
+max_idle = 10
+max_active = 100
+connect_timeout = "10s"

@@ -39,7 +39,17 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-
+      db:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: rootpassword
+          MYSQL_DATABASE: mydb
+          MYSQL_USER: user
+          MYSQL_PASSWORD: userpassword
+        ports:
+          - "3306:3306"
+        # volumes:
+        #   - mysql_data:/var/lib/mysql
     steps:
     - name: Install Go
       if: success()
@@ -52,14 +62,23 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Add tables
+    - name: Add postgres tables
       run: PGPASSWORD=testPass psql -U testUser -h localhost -p 5432 -d testDB -c 'CREATE TABLE entries (id BIGSERIAL PRIMARY KEY, amount REAL, user_id VARCHAR(6), entry_date DATE, timestamp TIMESTAMP)';
-   
+    
+    - name: Add mysql tables
+      run: mysql -h localhost -P 3306 -u root -p mydb --protocol=TCP --password=rootpassword -e 'CREATE TABLE entries (id BIGINT PRIMARY KEY, amount REAL, user_id VARCHAR(6), entry_date DATE, timestamp TIMESTAMP)'
+
     - name: Build binary
       run: CGO_ENABLED=0 go build -o server.bin -ldflags="-s -w -X 'main.buildString=${BUILDSTR}'" ./cmd/*.go
    
     - name: Run binary server
-      run:  ./server.bin --config config.test.toml &
+      run:  ./server.bin --config config.test_pg.toml --sql-directory=sql/pg &
+   
+    - name: Run tests
+      run: sleep 5 && go test ./client -v -covermode=count
+      
+    - name: Run binary server
+      run:  ./server.bin --config config.test_mysql.toml --sql-directory=sql/mysql &
    
     - name: Run tests
       run: sleep 5 && go test ./client -v -covermode=count

@@ -1,6 +1,8 @@
 [app]
 log_level = "DEBUG"
 default_job_ttl = "60s"
+enable_tracing = false 
+trace_file_path = "./out.traces"
 
 [job_queue.broker]
 type = "redis"

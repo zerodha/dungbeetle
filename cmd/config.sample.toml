@@ -3,6 +3,8 @@
 log_level = "INFO"
 # maximum time allowed for a job to run once it has started execution
 default_job_ttl = "60s"
+enable_tracing = false 
+trace_file_path = "./out.traces"
 
 # The broker that manages job queuing.
 # Currently, only "redis" is supported.

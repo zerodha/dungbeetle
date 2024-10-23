@@ -20,8 +20,23 @@ import (
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 )
+
+// traces is a thin wrapper around otel trace-provider which
+// is optionally passed to the distributed queue
+type traces struct {
+	f  *os.File
+	tp *trace.TracerProvider
+}
+
+func (t *traces) Close() error {
+	if err := t.tp.Shutdown(context.Background()); err != nil {
+		return err
+	}
+
+	return t.f.Close()
+}
 
 // Opt represents core options.
 type Opt struct {
@@ -51,7 +66,8 @@ type Core struct {
 	resultBackends ResultBackends
 
 	// Distributed queue system.
-	q *tasqueue.Server
+	tracer *traces
+	q      *tasqueue.Server
 
 	// Job states for cancellation.
 	jobCtx map[string]context.CancelFunc
@@ -83,6 +99,11 @@ func (co *Core) Start(ctx context.Context, workerName string, concurrency int) e
 	}
 	co.q = qs
 	qs.Start(ctx)
+
+	// Close the tracer once the job processor ends
+	if co.opt.EnableTracing {
+		co.tracer.Close()
+	}
 
 	return nil
 }
@@ -410,13 +431,12 @@ type taskMeta struct {
 	TTL  int           `json:"ttl"`
 }
 
-func initTracer(lo *slog.Logger, fpath string) (*trace.TracerProvider, error) {
+func initTracer(fpath string) (*traces, error) {
 	// Write telemetry data to a file.
 	f, err := os.Create(fpath)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 
 	exp, err := stdouttrace.New(
 		stdouttrace.WithWriter(f),
@@ -439,14 +459,12 @@ func initTracer(lo *slog.Logger, fpath string) (*trace.TracerProvider, error) {
 	}
 
 	tp := trace.NewTracerProvider(trace.WithBatcher(exp), trace.WithResource(r))
-	defer func() {
-		if err := tp.Shutdown(context.Background()); err != nil {
-			lo.Error("error shutting down trace-provider", "error", err)
-		}
-	}()
 	otel.SetTracerProvider(tp)
 
-	return tp, nil
+	return &traces{
+		f:  f,
+		tp: tp,
+	}, nil
 }
 
 // initQueue creates and returns a distributed queue system (Tasqueue) and registers
@@ -458,12 +476,14 @@ func (co *Core) initQueue() (*tasqueue.Server, error) {
 		Results: co.opt.Results,
 		Logger:  co.lo.Handler(),
 	}
+
+	var err error
 	if co.opt.EnableTracing {
-		tp, err := initTracer(co.lo, co.opt.TraceFilePath)
+		co.tracer, err = initTracer(co.opt.TraceFilePath)
 		if err != nil {
 			return nil, err
 		}
-		opts.TraceProvider = tp
+		opts.TraceProvider = co.tracer.tp
 	}
 
 	// TODO: set log level

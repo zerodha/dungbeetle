@@ -234,6 +234,8 @@ func initCore(ko *koanf.Koanf) (*core.Core, error) {
 		DefaultQueue:            ko.MustString("queue"),
 		DefaultGroupConcurrency: ko.MustInt("worker-concurrency"),
 		DefaultJobTTL:           ko.MustDuration("app.default_job_ttl"),
+		EnableTracing:           ko.Bool("app.enable_tracing"),
+		TraceFilePath:           ko.String("app.trace_file_path"),
 		Results:                 rResult,
 		Broker:                  rBroker,
 	}, srcPool, backends, lo)

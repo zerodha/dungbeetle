@@ -34,7 +34,7 @@ Example:
 -- queries.sql
 
 -- name: get_profit_summary
-SELECT SUM(amount) AS total, entry_date FROM entries GROUP BY entry_date WHERE user_id = ?;
+SELECT SUM(amount) AS total, entry_date FROM entries WHERE user_id = ? GROUP BY entry_date;
 
 -- name: get_profit_entries
 -- db: db0, other_db

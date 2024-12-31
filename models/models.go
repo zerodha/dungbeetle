@@ -15,6 +15,9 @@ type JobReq struct {
 	Args     []string `json:"args"`
 	DB       string   `json:"db"`
 
+	// Optional params
+	DynamicParams []string `json:"dynamic_params"`
+
 	ttlDuration time.Duration
 }
 

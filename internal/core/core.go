@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -377,10 +378,17 @@ func (co *Core) makeJob(j models.JobReq, taskName string) (tasqueue.Job, error) 
 		args[i] = j.Args[i]
 	}
 
+	// DynamicParams
+	var dynamicParams = make([]interface{}, len(j.DynamicParams))
+	for i := range j.DynamicParams {
+		dynamicParams[i] = j.DynamicParams[i]
+	}
+
 	b, err := msgpack.Marshal(taskMeta{
-		Args: args,
-		DB:   j.DB,
-		TTL:  int(ttl),
+		Args:          args,
+		DB:            j.DB,
+		TTL:           int(ttl),
+		DynamicParams: dynamicParams,
 	})
 	if err != nil {
 		return tasqueue.Job{}, err
@@ -395,9 +403,10 @@ func (co *Core) makeJob(j models.JobReq, taskName string) (tasqueue.Job, error) 
 }
 
 type taskMeta struct {
-	Args []interface{} `json:"args"`
-	DB   string        `json:"db"`
-	TTL  int           `json:"ttl"`
+	Args          []interface{} `json:"args"`
+	DB            string        `json:"db"`
+	TTL           int           `json:"ttl"`
+	DynamicParams []interface{} `json:"dynamic_params"`
 }
 
 // initQueue creates and returns a distributed queue system (Tasqueue) and registers
@@ -426,6 +435,12 @@ func (co *Core) initQueue() (*tasqueue.Server, error) {
 			var args taskMeta
 			if err := msgpack.Unmarshal(b, &args); err != nil {
 				return fmt.Errorf("could not unmarshal args : %w", err)
+			}
+
+			// replace dynamic params in query (args.DynamicParams)
+			// example dynamic columns, dynamic joins, dynamic table names
+			for i := 0; i < len(args.DynamicParams); i++ {
+				query.Raw = strings.Replace(query.Raw, "$"+strconv.Itoa(i+1), fmt.Sprintf("%v", args.DynamicParams[i]), -1)
 			}
 
 			count, err := co.execJob(jctx.Meta.ID, name, args.DB, time.Duration(args.TTL)*time.Second, args.Args, query)

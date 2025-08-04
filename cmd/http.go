@@ -18,7 +18,7 @@ var reValidateName = regexp.MustCompile("(?i)^[a-z0-9-_:]+$")
 // is passed, it returns the raw SQL bodies as well.
 func handleGetTasksList(w http.ResponseWriter, r *http.Request) {
 	var (
-		co = r.Context().Value("core").(*core.Core)
+		co = r.Context().Value(coreKey).(*core.Core)
 	)
 
 	tasks := co.GetTasks()
@@ -41,7 +41,7 @@ func handleGetTasksList(w http.ResponseWriter, r *http.Request) {
 // handleGetJobStatus returns the status of a given jobID.
 func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 	var (
-		co = r.Context().Value("core").(*core.Core)
+		co = r.Context().Value(coreKey).(*core.Core)
 
 		jobID = chi.URLParam(r, "jobID")
 	)
@@ -59,7 +59,7 @@ func handleGetJobStatus(w http.ResponseWriter, r *http.Request) {
 // handleGetGroupStatus returns the status of a given groupID.
 func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 	var (
-		co = r.Context().Value("core").(*core.Core)
+		co = r.Context().Value(coreKey).(*core.Core)
 
 		groupID = chi.URLParam(r, "groupID")
 	)
@@ -77,7 +77,7 @@ func handleGetGroupStatus(w http.ResponseWriter, r *http.Request) {
 // handleGetPendingJobs returns pending jobs in a given queue.
 func handleGetPendingJobs(w http.ResponseWriter, r *http.Request) {
 	var (
-		co    = r.Context().Value("core").(*core.Core)
+		co    = r.Context().Value(coreKey).(*core.Core)
 		queue = chi.URLParam(r, "queue")
 	)
 
@@ -94,7 +94,7 @@ func handleGetPendingJobs(w http.ResponseWriter, r *http.Request) {
 // handlePostJob creates a new job against a given task name.
 func handlePostJob(w http.ResponseWriter, r *http.Request) {
 	var (
-		co = r.Context().Value("core").(*core.Core)
+		co = r.Context().Value(coreKey).(*core.Core)
 
 		taskName = chi.URLParam(r, "taskName")
 	)
@@ -134,7 +134,7 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 // handlePostJobGroup creates multiple jobs under a group.
 func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 	var (
-		co = r.Context().Value("core").(*core.Core)
+		co = r.Context().Value(coreKey).(*core.Core)
 
 		decoder = json.NewDecoder(r.Body)
 		req     models.GroupReq
@@ -160,7 +160,7 @@ func handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 // it is cancelled first and then deleted.
 func handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	var (
-		co = r.Context().Value("core").(*core.Core)
+		co = r.Context().Value(coreKey).(*core.Core)
 
 		jobID    = chi.URLParam(r, "jobID")
 		purge, _ = strconv.ParseBool(r.URL.Query().Get("purge"))
@@ -178,7 +178,7 @@ func handleCancelJob(w http.ResponseWriter, r *http.Request) {
 // If the job is running, it is cancelled first, and then deleted.
 func handleCancelGroupJob(w http.ResponseWriter, r *http.Request) {
 	var (
-		co = r.Context().Value("core").(*core.Core)
+		co = r.Context().Value(coreKey).(*core.Core)
 
 		groupID  = chi.URLParam(r, "groupID")
 		purge, _ = strconv.ParseBool(r.URL.Query().Get("purge"))

@@ -1,11 +1,12 @@
 module github.com/zerodha/dungbeetle/v2
 
-go 1.21
+go 1.23.0
+
 toolchain go1.23.7
 
 require (
 	github.com/ClickHouse/clickhouse-go v1.5.4
-	github.com/go-chi/chi/v5 v5.0.10
+	github.com/go-chi/chi/v5 v5.2.2
 	github.com/go-sql-driver/mysql v1.7.1
 	github.com/gofrs/uuid/v5 v5.0.0
 	github.com/kalbhor/tasqueue/v2 v2.2.0

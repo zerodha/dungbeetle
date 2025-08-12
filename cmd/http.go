@@ -115,7 +115,7 @@ func handlePostJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !reValidateName.Match([]byte(req.JobID)) {
+	if req.JobID != "" && !reValidateName.Match([]byte(req.JobID)) {
 		sendErrorResponse(w, "invalid characters in the `job_id`", http.StatusBadRequest)
 		return
 	}

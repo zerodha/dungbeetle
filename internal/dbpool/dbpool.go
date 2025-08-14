@@ -39,7 +39,7 @@ func New(mp map[string]Config) (map[string]*sql.DB, error) {
 	return out, nil
 }
 
-// connectDB creates and returns a database connection.
+// NewConn creates and returns a database connection.
 func NewConn(cfg Config) (*sql.DB, error) {
 	db, err := sql.Open(cfg.Type, cfg.DSN)
 	if err != nil {

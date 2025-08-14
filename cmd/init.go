@@ -22,6 +22,10 @@ import (
 	"github.com/zerodha/dungbeetle/v2/internal/resultbackends/sqldb"
 )
 
+type contextKey string
+
+const coreKey contextKey = "core"
+
 var (
 	//go:embed config.sample.toml
 	efs embed.FS
@@ -30,9 +34,21 @@ var (
 func initFlags(ko *koanf.Koanf) {
 	// Command line flags.
 	f := flag.NewFlagSet("config", flag.ContinueOnError)
+
+	const usage = `
+DungBeetle is a distributed SQL job queue and worker system.
+It allows you to run SQL queries as jobs in a distributed manner, with support for job queues, concurrency, and result storage.
+
+Usage:
+	dungbeetle [flags]
+Flags:
+`
+
 	f.Usage = func() {
-		lo.Info("DungBeetle")
-		lo.Info(f.FlagUsages())
+		fmt.Fprint(os.Stderr, usage)
+		f.SetOutput(os.Stderr)
+		f.PrintDefaults()
+		fmt.Fprintln(os.Stderr)
 		os.Exit(0)
 	}
 
@@ -52,17 +68,19 @@ func initFlags(ko *koanf.Koanf) {
 }
 
 func initConfig(ko *koanf.Koanf) {
-	lo.Info("buildstring", "value", buildString)
 
 	// Generate new config file.
 	if ok := ko.Bool("new-config"); ok {
 		if err := generateConfig(); err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		fmt.Println("config.toml generated. Edit and run --install.")
+		fmt.Fprintln(os.Stderr, "config.toml generated.")
 		os.Exit(0)
 	}
+
+	// Print build string.
+	lo.Info("buildstring", "value", buildString)
 
 	// Load the config file.
 	if err := ko.Load(file.Provider(ko.String("config")), toml.Parser()); err != nil {
@@ -123,7 +141,7 @@ func initHTTP(co *core.Core) {
 				"content-length", r.ContentLength,
 				"form", r.Form,
 			)
-			ctx := context.WithValue(r.Context(), "core", co)
+			ctx := context.WithValue(r.Context(), coreKey, co)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	})
@@ -199,10 +217,10 @@ func initCore(ko *koanf.Koanf) (*core.Core, error) {
 	}
 
 	if v := ko.MustString("job_queue.broker.type"); v != "redis" {
-		return nil, fmt.Errorf("unsupported job_queue.broker.type '%s'. Only 'redis' is supported.", v)
+		return nil, fmt.Errorf("unsupported job_queue.broker.type '%s'. Only 'redis' is supported", v)
 	}
 	if v := ko.MustString("job_queue.state.type"); v != "redis" {
-		return nil, fmt.Errorf("unsupported job_queue.state.type '%s'. Only 'redis' is supported.", v)
+		return nil, fmt.Errorf("unsupported job_queue.state.type '%s'. Only 'redis' is supported", v)
 	}
 
 	lo := slog.Default()

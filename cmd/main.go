@@ -9,6 +9,7 @@ import (
 
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/v2"
+	"github.com/zerodha/dungbeetle/v2/internal/core"
 
 	// Clickhouse, MySQL and Postgres drivers.
 	_ "github.com/ClickHouse/clickhouse-go"
@@ -16,12 +17,18 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// Handlers holds all application dependencies
+type Handlers struct {
+	co  *core.Core
+	log *slog.Logger
+}
+
 var (
 	buildString = "unknown"
 
 	// Initially, set the logger as default
-	lo *slog.Logger = slog.Default()
-	ko              = koanf.New(".")
+	log *slog.Logger = slog.Default()
+	ko               = koanf.New(".")
 )
 
 func main() {
@@ -38,7 +45,7 @@ func main() {
 	if err := ko.Load(env.Provider("DUNGBEETLE_", ".", func(s string) string {
 		return strings.Replace(strings.ToLower(strings.TrimPrefix(s, "DUNGBEETLE_")), "__", ".", -1)
 	}), nil); err != nil {
-		lo.Error("error loading config from env", "error", err)
+		log.Error("error loading config from env", "error", err)
 		return
 	}
 
@@ -47,24 +54,30 @@ func main() {
 		mode = "worker only"
 	}
 
-	lo.Info("starting server", "queue", ko.MustString("queue"), "mode", mode, "worker-name", ko.MustString("worker-name"))
+	log.Info("starting server", "queue", ko.MustString("queue"), "mode", mode, "worker-name", ko.MustString("worker-name"))
 
 	// Initialize the core.
 	co, err := initCore(ko)
 	if err != nil {
-		lo.Error("could not initialise core", "error", err)
+		log.Error("could not initialise core", "error", err)
 		return
+	}
+
+	// Create app instance with all dependencies
+	app := &Handlers{
+		co:  co,
+		log: log,
 	}
 
 	// Start the HTTP server if not in the worker-only mode.
 	if !ko.Bool("worker-only") {
-		go initHTTP(co)
+		go initHTTP(app, ko)
 	}
 
 	ctx := context.Background()
 
 	// Start the core.
 	if err := co.Start(ctx, ko.MustString("worker-name"), ko.MustInt("worker-concurrency")); err != nil {
-		lo.Error("could not start core", "error", err)
+		log.Error("could not start core", "error", err)
 	}
 }

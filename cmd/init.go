@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"embed"
 	"errors"
 	"fmt"
@@ -31,8 +30,8 @@ func initFlags(ko *koanf.Koanf) {
 	// Command line flags.
 	f := flag.NewFlagSet("config", flag.ContinueOnError)
 	f.Usage = func() {
-		lo.Info("DungBeetle")
-		lo.Info(f.FlagUsages())
+		log.Info("DungBeetle")
+		log.Info(f.FlagUsages())
 		os.Exit(0)
 	}
 
@@ -52,7 +51,7 @@ func initFlags(ko *koanf.Koanf) {
 }
 
 func initConfig(ko *koanf.Koanf) {
-	lo.Info("buildstring", "value", buildString)
+	log.Info("buildstring", "value", buildString)
 
 	// Generate new config file.
 	if ok := ko.Bool("new-config"); ok {
@@ -82,12 +81,12 @@ func initConfig(ko *koanf.Koanf) {
 	case "ERROR":
 		opts.Level = slog.LevelError
 	default:
-		lo.Error("incorrect log level in app")
+		log.Error("incorrect log level in app")
 		os.Exit(1)
 	}
 
 	// Override the logger according to level
-	lo = slog.New(slog.NewTextHandler(os.Stdout, opts))
+	log = slog.New(slog.NewTextHandler(os.Stdout, opts))
 }
 
 func generateConfig() error {
@@ -109,13 +108,13 @@ func generateConfig() error {
 }
 
 // initHTTP is a blocking function that initializes and runs the HTTP server.
-func initHTTP(co *core.Core) {
+func initHTTP(h *Handlers, ko *koanf.Koanf) {
 	r := chi.NewRouter()
 
-	// Middleware to attach the instance of core to every handler.
+	// Request logging middleware.
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			lo.Debug("server received request",
+			log.Debug("server received request",
 				"method", r.Method,
 				"header", r.Header,
 				"uri", r.RequestURI,
@@ -123,27 +122,27 @@ func initHTTP(co *core.Core) {
 				"content-length", r.ContentLength,
 				"form", r.Form,
 			)
-			ctx := context.WithValue(r.Context(), "core", co)
-			next.ServeHTTP(w, r.WithContext(ctx))
+
+			next.ServeHTTP(w, r)
 		})
 	})
 
 	// Register HTTP handlers.
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		sendResponse(w, fmt.Sprintf("dungbeetle %s", buildString))
+		h.sendResponse(w, fmt.Sprintf("dungbeetle %s", buildString))
 	})
-	r.Get("/tasks", handleGetTasksList)
-	r.Post("/tasks/{taskName}/jobs", handlePostJob)
-	r.Get("/jobs/{jobID}", handleGetJobStatus)
-	r.Delete("/jobs/{jobID}", handleCancelJob)
-	r.Delete("/groups/{groupID}", handleCancelGroupJob)
-	r.Get("/jobs/queue/{queue}", handleGetPendingJobs)
-	r.Post("/groups", handlePostJobGroup)
-	r.Get("/groups/{groupID}", handleGetGroupStatus)
+	r.Get("/tasks", h.GetTasksList)
+	r.Post("/tasks/{taskName}/jobs", h.handlePostJob)
+	r.Get("/jobs/{jobID}", h.handleGetJobStatus)
+	r.Delete("/jobs/{jobID}", h.handleCancelJob)
+	r.Delete("/groups/{groupID}", h.handleCancelGroupJob)
+	r.Get("/jobs/queue/{queue}", h.handleGetPendingJobs)
+	r.Post("/groups", h.handlePostJobGroup)
+	r.Get("/groups/{groupID}", h.handleGetGroupStatus)
 
-	lo.Info("starting HTTP server", "address", ko.String("server"))
+	log.Info("starting HTTP server", "address", ko.String("server"))
 	if err := http.ListenAndServe(ko.String("server"), r); err != nil {
-		lo.Error("shutting down http server", "error", err)
+		log.Error("shutting down http server", "error", err)
 	}
 	os.Exit(0)
 }
@@ -152,11 +151,11 @@ func initCore(ko *koanf.Koanf) (*core.Core, error) {
 	// Source DBs config.
 	var srcDBs map[string]dbpool.Config
 	if err := ko.Unmarshal("db", &srcDBs); err != nil {
-		lo.Error("error reading source DB config", "error", err)
+		log.Error("error reading source DB config", "error", err)
 		return nil, fmt.Errorf("error reading source DB config : %w", err)
 	}
 	if len(srcDBs) == 0 {
-		lo.Error("found 0 source databases in config")
+		log.Error("found 0 source databases in config")
 		return nil, fmt.Errorf("found 0 source databases in config")
 	}
 
@@ -190,7 +189,7 @@ func initCore(ko *koanf.Koanf) (*core.Core, error) {
 			UnloggedTables: resDBs[name].Unlogged,
 		}
 
-		backend, err := sqldb.NewSQLBackend(db, opt, lo)
+		backend, err := sqldb.NewSQLBackend(db, opt, log)
 		if err != nil {
 			return nil, fmt.Errorf("error initializing result backend: %w", err)
 		}

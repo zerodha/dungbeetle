@@ -14,12 +14,11 @@ concurrency:
 
 permissions:
   contents: read
-  
+
 jobs:
   test:
     strategy:
       matrix:
-        go-version: [1.24.x]
         platform: [ubuntu-latest]
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 20
@@ -36,13 +35,13 @@ jobs:
           - 6379:6379
 
       postgres:
-        image: postgres
+        image: postgres:15-alpine
         env:
           POSTGRES_PASSWORD: testPass
           POSTGRES_USER: testUser
           POSTGRES_DB: testDB
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -h 127.0.0.1 -U testUser -d testDB"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -57,37 +56,28 @@ jobs:
           MYSQL_PASSWORD: userpassword
         ports:
           - "3306:3306"
-        # volumes:
-        #   - mysql_data:/var/lib/mysql
+        options: >-
+          --health-cmd "mysql --protocol=TCP -h 127.0.0.1 -u root --password=rootpassword -e 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
     - name: Install Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v6
       with:
-        go-version: ${{ matrix.go-version }}
-        
-    - name: Install Dependenies
-      run:  sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates postgresql-client
+        go-version-file: go.mod
+
+    - name: Install Dependencies
+      run:  sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates postgresql-client mysql-client curl
 
     - name: Add postgres tables
       run: PGPASSWORD=testPass psql -U testUser -h localhost -p 5432 -d testDB -c 'CREATE TABLE entries (id BIGSERIAL PRIMARY KEY, amount REAL, user_id VARCHAR(6), entry_date DATE, timestamp TIMESTAMP)';
-    
+
     - name: Add mysql tables
       run: mysql -h localhost -P 3306 -u root -p mydb --protocol=TCP --password=rootpassword -e 'CREATE TABLE entries (id BIGINT PRIMARY KEY, amount REAL, user_id VARCHAR(6), entry_date DATE, timestamp TIMESTAMP)'
 
-    - name: Build binary
-      run: CGO_ENABLED=0 go build -o server.bin -ldflags="-s -w -X 'main.buildString=${BUILDSTR}'" ./cmd/*.go
-   
-    - name: Run binary server
-      run:  ./server.bin --config config.test_pg.toml --sql-directory=sql/pg &
-   
-    - name: Run tests
-      run: sleep 5 && go test ./client -v -covermode=count
-      
-    - name: Run binary server
-      run:  ./server.bin --config config.test_mysql.toml --sql-directory=sql/mysql &
-   
-    - name: Run tests
-      run: sleep 5 && go test ./client -v -covermode=count
+    - name: Run PostgreSQL and MySQL tests
+      run: ./scripts/test.sh run --ci

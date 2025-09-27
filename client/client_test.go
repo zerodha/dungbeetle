@@ -98,8 +98,10 @@ func TestSlowQuery(t *testing.T) {
 		// Check for result max twice
 		checkCount = 2
 		// The ctx that will trigger after the job is done
-		ctx, _ = context.WithTimeout(context.Background(), time.Second*5)
+		ctx, cancel = context.WithTimeout(context.Background(), time.Second*5)
 	)
+	defer cancel()
+	defer tk.Stop()
 
 	for {
 		select {

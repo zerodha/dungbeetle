@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: dungbeetle-test-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dungbeetle-test
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: dungbeetle-test-postgres
+    environment:
+      POSTGRES_PASSWORD: testPass
+      POSTGRES_USER: testUser
+      POSTGRES_DB: testDB
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testUser -d testDB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dungbeetle-test
+
+  mysql:
+    image: mysql:8.0
+    container_name: dungbeetle-test-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: mydb
+      MYSQL_USER: user
+      MYSQL_PASSWORD: userpassword
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "--password=rootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dungbeetle-test
+    command: --default-authentication-plugin=mysql_native_password
+
+networks:
+  dungbeetle-test:
+    driver: bridge

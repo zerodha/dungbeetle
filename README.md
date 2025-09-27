@@ -80,6 +80,38 @@ dungbeetle --config /path/to/config.toml --sql-directory /path/to/your/sql/queri
 
 Starting the server runs a set of workers listening on a default job queue. It also starts an HTTP service on `http://127.0.0.1:6060` which is the control interface. It's possible to run the server without the HTTP interface by passing the `--worker-only` flag.
 
+## Local Testing
+
+Run tests locally using Docker and Docker Compose.
+
+### Quick Start
+
+```bash
+# Run all tests
+make test-local
+
+# Test specific databases
+make test-postgres
+make test-mysql
+```
+
+### Test Commands
+
+| Command | Description |
+|---------|-------------|
+| `make test-local` | Complete test cycle |
+| `make test-setup` | Start test services |
+| `make test-run` | Run tests |
+| `make test-cleanup` | Stop services |
+| `make test-postgres` | PostgreSQL tests only |
+| `make test-mysql` | MySQL tests only |
+
+### Prerequisites
+
+- Docker
+- Docker Compose
+- Go 1.21+
+
 
 ### Usage
 | Method | URI                    |                                                 |

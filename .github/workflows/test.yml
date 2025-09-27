@@ -48,15 +48,15 @@ jobs:
           MYSQL_PASSWORD: userpassword
         ports:
           - "3306:3306"
-        # volumes:
-        #   - mysql_data:/var/lib/mysql
+        # Required for MySQL 8.0+ compatibility with Go MySQL drivers
+        command: --default-authentication-plugin=mysql_native_password
     steps:
     - name: Install Go
       if: success()
       uses: actions/setup-go@v4
       with:
         go-version: ${{ matrix.go-version }}
-    - name: Install Dependenies
+    - name: Install Dependencies
       run:  sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates postgresql-client
 
     - name: Checkout code
@@ -64,21 +64,23 @@ jobs:
 
     - name: Add postgres tables
       run: PGPASSWORD=testPass psql -U testUser -h localhost -p 5432 -d testDB -c 'CREATE TABLE entries (id BIGSERIAL PRIMARY KEY, amount REAL, user_id VARCHAR(6), entry_date DATE, timestamp TIMESTAMP)';
-    
+
     - name: Add mysql tables
       run: mysql -h localhost -P 3306 -u root -p mydb --protocol=TCP --password=rootpassword -e 'CREATE TABLE entries (id BIGINT PRIMARY KEY, amount REAL, user_id VARCHAR(6), entry_date DATE, timestamp TIMESTAMP)'
 
     - name: Build binary
       run: CGO_ENABLED=0 go build -o server.bin -ldflags="-s -w -X 'main.buildString=${BUILDSTR}'" ./cmd/*.go
-   
-    - name: Run binary server
-      run:  ./server.bin --config config.test_pg.toml --sql-directory=sql/pg &
-   
-    - name: Run tests
-      run: sleep 5 && go test ./client -v -covermode=count
-      
-    - name: Run binary server
-      run:  ./server.bin --config config.test_mysql.toml --sql-directory=sql/mysql &
-   
-    - name: Run tests
-      run: sleep 5 && go test ./client -v -covermode=count
+
+    - name: Run PostgreSQL tests
+      run: |
+        ./server.bin --config config.test_pg.toml --sql-directory=sql/pg &
+        sleep 5
+        go test ./client -v -covermode=count
+        pkill -f server.bin || true
+
+    - name: Run MySQL tests
+      run: |
+        ./server.bin --config config.test_mysql.toml --sql-directory=sql/mysql &
+        sleep 5
+        go test ./client -v -covermode=count
+        pkill -f server.bin || true

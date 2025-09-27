@@ -25,6 +25,31 @@ dist: build
 test:
 	go test ./... -v -p 1
 
+# Local testing targets using unified test script
+.PHONY: test-local
+test-local:
+	./scripts/test.sh all
+
+.PHONY: test-setup
+test-setup:
+	./scripts/test.sh setup
+
+.PHONY: test-run
+test-run:
+	./scripts/test.sh run
+
+.PHONY: test-cleanup
+test-cleanup:
+	./scripts/test.sh cleanup
+
+.PHONY: test-postgres
+test-postgres:
+	./scripts/test.sh run --postgres
+
+.PHONY: test-mysql
+test-mysql:
+	./scripts/test.sh run --mysql
+
 # Use goreleaser to do a dry run producing local builds.
 .PHONY: release-dry
 release-dry:

@@ -21,6 +21,8 @@ type Config struct {
 	MaxIdleConns   int           `koanf:"max_idle"`
 	MaxActiveConns int           `koanf:"max_active"`
 	ConnectTimeout time.Duration `koanf:"connect_timeout"`
+	BatchSize      int           `koanf:"batch_size"`
+	BatchInsert    bool          `koanf:"batch_insert"`
 }
 
 // New takes a map of named DB configurations and returns a named map

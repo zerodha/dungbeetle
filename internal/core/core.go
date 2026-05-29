@@ -380,7 +380,7 @@ func (co *Core) makeJob(j models.JobReq, taskName string) (tasqueue.Job, error) 
 	b, err := msgpack.Marshal(taskMeta{
 		Args: args,
 		DB:   j.DB,
-		TTL:  int(ttl),
+		TTL:  int(ttl.Seconds()),
 	})
 	if err != nil {
 		return tasqueue.Job{}, err

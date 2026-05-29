@@ -15,10 +15,13 @@ import (
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/providers/posflag"
 	"github.com/knadh/koanf/v2"
+
 	flag "github.com/spf13/pflag"
 	"github.com/zerodha/dungbeetle/v2/internal/core"
 	"github.com/zerodha/dungbeetle/v2/internal/dbpool"
+	"github.com/zerodha/dungbeetle/v2/internal/resultbackends/pgxdb"
 	"github.com/zerodha/dungbeetle/v2/internal/resultbackends/sqldb"
+	"github.com/zerodha/dungbeetle/v2/models"
 )
 
 var (
@@ -174,27 +177,10 @@ func initCore(ko *koanf.Koanf) (*core.Core, error) {
 		return nil, err
 	}
 
-	// Connect to result DBs.
-	resPool, err := dbpool.New(resDBs)
-	if err != nil {
-		return nil, err
-	}
-
 	// Initialize the result backend controller for every backend.
-	backends := make(core.ResultBackends)
-	for name, db := range resPool {
-		opt := sqldb.Opt{
-			DBType:         resDBs[name].Type,
-			ResultsTable:   ko.MustString(fmt.Sprintf("results.%s.results_table", name)),
-			UnloggedTables: resDBs[name].Unlogged,
-		}
-
-		backend, err := sqldb.NewSQLBackend(db, opt, log)
-		if err != nil {
-			return nil, fmt.Errorf("error initializing result backend: %w", err)
-		}
-
-		backends[name] = backend
+	backends, err := initResultBackends(resDBs, ko, log)
+	if err != nil {
+		return nil, fmt.Errorf("error initializing result backends: %w", err)
 	}
 
 	if v := ko.MustString("job_queue.broker.type"); v != "redis" {
@@ -241,4 +227,75 @@ func initCore(ko *koanf.Koanf) (*core.Core, error) {
 	}
 
 	return co, nil
+}
+
+// initResultBackends initializes all result backends defined in config.
+func initResultBackends(resDBs map[string]dbpool.Config, ko *koanf.Koanf, logger *slog.Logger) (core.ResultBackends, error) {
+	backends := make(core.ResultBackends)
+
+	for name, config := range resDBs {
+		var backend models.ResultBackend
+		var err error
+
+		// Use pgx backend for PostgreSQL.
+		if config.Type == "postgres" {
+			backend, err = createPgxResultBackend(name, config, ko, logger)
+		} else {
+			// Use standard SQL backend for other databases
+			backend, err = createSQLResultBackend(name, config, ko, logger)
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("error initializing result backend '%s': %w", name, err)
+		}
+
+		backends[name] = backend
+	}
+
+	return backends, nil
+}
+
+func createPgxResultBackend(name string, config dbpool.Config, ko *koanf.Koanf, logger *slog.Logger) (models.ResultBackend, error) {
+	opt := pgxdb.Opt{
+		ResultsTable:    ko.MustString(fmt.Sprintf("results.%s.results_table", name)),
+		UnloggedTables:  config.Unlogged,
+		BatchInsert:     config.BatchInsert,
+		BatchSize:       config.BatchSize,
+		MaxConns:        config.MaxActiveConns,
+		MaxConnIdleTime: config.MaxIdleConns,
+	}
+
+	if opt.ResultsTable == "" {
+		opt.ResultsTable = "results_%s"
+	}
+
+	return pgxdb.NewPgxBackend(config.DSN, opt, logger)
+}
+
+// createSQLResultBackend creates a standard SQL backend
+func createSQLResultBackend(name string, config dbpool.Config, ko *koanf.Koanf, logger *slog.Logger) (models.ResultBackend, error) {
+	// Connect to result DB using standard database/sql
+	resPool, err := dbpool.New(map[string]dbpool.Config{
+		name: config,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	db, ok := resPool[name]
+	if !ok {
+		return nil, fmt.Errorf("failed to get database connection for %s", name)
+	}
+
+	opt := sqldb.Opt{
+		DBType:         config.Type,
+		ResultsTable:   ko.MustString(fmt.Sprintf("results.%s.results_table", name)),
+		UnloggedTables: config.Unlogged,
+	}
+
+	if opt.ResultsTable == "" {
+		opt.ResultsTable = "results_%s"
+	}
+
+	return sqldb.NewSQLBackend(db, opt, logger)
 }

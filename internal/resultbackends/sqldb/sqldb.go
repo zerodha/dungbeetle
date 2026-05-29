@@ -16,11 +16,6 @@ import (
 	"github.com/zerodha/dungbeetle/v2/models"
 )
 
-const (
-	dbTypePostgres = "postgres"
-	dbTypeMysql    = "mysql"
-)
-
 // Opt represents SQL DB backend's options.
 type Opt struct {
 	DBType         string
@@ -48,7 +43,6 @@ type SQLDBResultSet struct {
 	taskName    string
 	colsWritten bool
 	cols        []string
-	rows        [][]byte
 	tx          *sql.Tx
 	tbl         string
 
@@ -122,14 +116,7 @@ func (w *SQLDBResultSet) RegisterColTypes(cols []string, colTypes []*sql.ColumnT
 	)
 	for i := range w.cols {
 		colNameHolder[i] = fmt.Sprintf(`"%s"`, w.cols[i])
-
-		// This will be filled by the driver.
-		if w.backend.opt.DBType == dbTypePostgres {
-			// Postgres placeholders are $1, $2 ...
-			colValHolder[i] = fmt.Sprintf("$%d", i+1)
-		} else {
-			colValHolder[i] = "?"
-		}
+		colValHolder[i] = "?"
 	}
 
 	ins := fmt.Sprintf(`INSERT INTO "%%s" (%s) `, strings.Join(colNameHolder, ","))
@@ -235,20 +222,13 @@ func (s *SqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 
 	for i := range cols {
 		colNameHolder[i] = s.quoteIdentifier(cols[i])
+		colValHolder[i] = "?"
 
-		// This will be filled by the driver.
-		if s.opt.DBType == dbTypePostgres {
-			// Postgres placeholders are $1, $2 ...
-			colValHolder[i] = fmt.Sprintf("$%d", i+1)
-		} else {
-			colValHolder[i] = "?"
-		}
 	}
 
 	var (
-		fields   = make([]string, len(cols))
-		typ      string
-		unlogged string
+		fields = make([]string, len(cols))
+		typ    string
 	)
 
 	for i := 0; i < len(cols); i++ {
@@ -265,15 +245,10 @@ func (s *SqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 		case "BOOLEAN":
 			typ = "BOOLEAN"
 		case "JSON", "JSONB":
-			if s.opt.DBType == dbTypePostgres {
-				typ = "JSONB"
-			} else {
-				typ = "JSON"
-			}
+			typ = "JSON"
 		case "_INT4", "_INT8", "_TEXT":
-			if s.opt.DBType != dbTypePostgres {
-				typ = "TEXT"
-			}
+			typ = "TEXT"
+
 		case "VARCHAR":
 			typ = "VARCHAR(255)"
 		default:
@@ -287,16 +262,9 @@ func (s *SqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 		fields[i] = fmt.Sprintf("%s %s", s.quoteIdentifier(cols[i]), typ)
 	}
 
-	// If the DB is Postgres, optionally create an "unlogged" table that disables
-	// WAL, improving performance of throw-away cache tables.
-	// https://www.postgresql.org/docs/current/sql-createtable.html
-	if s.opt.DBType == dbTypePostgres && s.opt.UnloggedTables {
-		unlogged = "UNLOGGED"
-	}
-
 	return insertSchema{
 		dropTable:   fmt.Sprintf("DROP TABLE IF EXISTS %s;", s.quoteIdentifier("%s")),
-		createTable: fmt.Sprintf("CREATE %s TABLE IF NOT EXISTS %s (%s);", unlogged, s.quoteIdentifier("%s"), strings.Join(fields, ",")),
+		createTable: fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s);", s.quoteIdentifier("%s"), strings.Join(fields, ",")),
 		insertRow: fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
 			s.quoteIdentifier("%s"),
 			strings.Join(colNameHolder, ","),
@@ -306,9 +274,6 @@ func (s *SqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 
 // quoteIdentifier quotes an identifier (table or column name) based on the database type
 func (s *SqlDB) quoteIdentifier(name string) string {
-	if s.opt.DBType == dbTypePostgres {
-		return fmt.Sprintf(`"%s"`, name)
-	}
 	// MySQL uses backticks
 	return fmt.Sprintf("`%s`", name)
 }

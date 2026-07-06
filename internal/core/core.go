@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/VictoriaMetrics/metrics"
 	uuid "github.com/gofrs/uuid/v5"
 	"github.com/kalbhor/tasqueue/v2"
 	"github.com/vmihailenco/msgpack"
@@ -47,6 +48,9 @@ type Core struct {
 	jobCtx map[string]context.CancelFunc
 	mu     sync.RWMutex
 
+	// Prometheus/VictoriaMetrics metrics.
+	metrics *metrics.Set
+
 	lo *slog.Logger
 }
 
@@ -59,8 +63,14 @@ func New(o Opt, srcDBs dbpool.Pool, res ResultBackends, lo *slog.Logger) *Core {
 		resultBackends: res,
 		jobCtx:         make(map[string]context.CancelFunc),
 		mu:             sync.RWMutex{},
+		metrics:        metrics.NewSet(),
 		lo:             lo,
 	}
+}
+
+// Metrics returns the core's Prometheus/VictoriaMetrics metrics set.
+func (co *Core) Metrics() *metrics.Set {
+	return co.metrics
 }
 
 // Start is a blocking function that spawns the queue workers and starts processing jobs.
@@ -94,6 +104,7 @@ func (co *Core) NewJob(j models.JobReq, taskName string) (models.JobResp, error)
 	if err != nil {
 		return models.JobResp{}, err
 	}
+	co.metrics.GetOrCreateCounter(MetricName(metricJobsQueued, Label{"task_name", taskName})).Inc()
 
 	return models.JobResp{
 		JobID:    uuid,
@@ -418,17 +429,35 @@ func (co *Core) initQueue() (*tasqueue.Server, error) {
 	// Register every SQL ready tasks in the queue system as a job function.
 	for name := range co.tasks {
 		query := co.tasks[name]
-		err := qs.RegisterTask(string(name), func(b []byte, jctx tasqueue.JobCtx) error {
-			if _, err := qs.GetJob(context.Background(), jctx.Meta.ID); err != nil {
+
+		var (
+			running = co.metrics.GetOrCreateGauge(MetricName(metricJobsRunning, Label{"task_name", name}), nil)
+			success = co.metrics.GetOrCreateCounter(MetricName(metricJobsSuccess, Label{"task_name", name}))
+			failed  = co.metrics.GetOrCreateCounter(MetricName(metricJobsFailed, Label{"task_name", name}))
+		)
+
+		err := qs.RegisterTask(string(name), func(b []byte, jctx tasqueue.JobCtx) (err error) {
+			running.Inc()
+			defer func() {
+				running.Dec()
+				if err != nil {
+					failed.Inc()
+				} else {
+					success.Inc()
+				}
+			}()
+
+			if _, err = qs.GetJob(context.Background(), jctx.Meta.ID); err != nil {
 				return err
 			}
 
 			var args taskMeta
-			if err := msgpack.Unmarshal(b, &args); err != nil {
+			if err = msgpack.Unmarshal(b, &args); err != nil {
 				return fmt.Errorf("could not unmarshal args : %w", err)
 			}
 
-			count, err := co.execJob(jctx.Meta.ID, name, args.DB, time.Duration(args.TTL)*time.Second, args.Args, query)
+			var count int64
+			count, err = co.execJob(jctx.Meta.ID, name, args.DB, time.Duration(args.TTL)*time.Second, args.Args, query)
 			if err != nil {
 				return fmt.Errorf("could not execute job : %w", err)
 			}

@@ -92,6 +92,7 @@ Starting the server runs a set of workers listening on a default job queue. It a
 | GET    | /groups/{groupID}      | Get the status of a job group and its jobs      |
 | DELETE | /jobs/{jobID}          | Deletes a pending job from the queue and immediately cancels its execution and frees the thread. Send a query param "purge=true" to delete completed jobs. Only the Go PostgreSQL driver cancels queries mid execution. MySQL server will keep continuing to execute the query. For MySQL, it's important to set `max_execution_time`.   |
 | DELETE | /groups/{groupID}          | Deletes a pending job from the queue and immediately cancels its execution and frees the thread. Send a query param "purge=true" to delete completed jobs. Only the Go PostgreSQL driver cancels queries mid execution. MySQL server will keep continuing to execute the query. For MySQL, it's important to set `max_execution_time`  |
+| GET    | /metrics               | Exposes Prometheus/VictoriaMetrics metrics for job queue statistics |
 
 POST requests accept raw JSON bodies. The JSON params are listed below.
 
@@ -161,6 +162,18 @@ $ curl localhost:6060/tasks/get_profit_entries_by_date/jobs -H "Content-Type: ap
 
 # Send another job to the low priority queue.
 $ curl localhost:6060/tasks/get_profit_entries_by_date/jobs -H "Content-Type: application/json" --data '{"job_id": "myjob", "queue": "low_priority"}'
+```
+
+## Metrics
+
+Job queue metrics are exposed in the Prometheus/VictoriaMetrics exposition format on the same HTTP interface.
+
+```
+$ curl localhost:6060/metrics
+dungbeetle_jobs_queued_total{task_name="get_profit_entries_by_date"} 42
+dungbeetle_jobs_running{task_name="get_profit_entries_by_date"} 2
+dungbeetle_jobs_success_total{task_name="get_profit_entries_by_date"} 38
+dungbeetle_jobs_failed_total{task_name="get_profit_entries_by_date"} 2
 ```
 
 ## Go API client

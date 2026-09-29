@@ -564,6 +564,10 @@ func (co *Core) writeResults(jobID string, task Task, ttl time.Duration, rows *s
 		numRows++
 	}
 
+	if err := rows.Err(); err != nil {
+		return numRows, fmt.Errorf("error reading source rows: %w", err)
+	}
+
 	if err := w.Flush(); err != nil {
 		return numRows, fmt.Errorf("error flushing results to result backend: %v", err)
 	}

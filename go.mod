@@ -6,7 +6,6 @@ toolchain go1.23.7
 
 require (
 	github.com/ClickHouse/clickhouse-go v1.5.4
-	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/go-chi/chi/v5 v5.2.2
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/gofrs/uuid/v5 v5.3.2

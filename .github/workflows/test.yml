@@ -79,6 +79,9 @@ jobs:
 
     - name: Build binary
       run: CGO_ENABLED=0 go build -o server.bin -ldflags="-s -w -X 'main.buildString=${BUILDSTR}'" ./cmd/*.go
+
+    - name: Run core tests
+      run: go test ./internal/core -v
    
     - name: Run binary server
       run:  ./server.bin --config config.test_pg.toml --sql-directory=sql/pg &

@@ -543,21 +543,24 @@ func (co *Core) writeResults(jobID string, task Task, ttl time.Duration, rows *s
 		return numRows, fmt.Errorf("error writing columns to result backend: %v", err)
 	}
 
-	// Gymnastics to read arbitrary types from the row.
+	// Create indirection for scanning arbitrary column types.
+	// sql.Rows.Scan() requires pointers to write into, but we need the actual values for WriteRow().
+	// Solution: scanPointers holds pointers to each element in rowValues, allowing Scan() to
+	// write through the pointers while we use the actual values from rowValues.
 	var (
-		resCols     = make([]interface{}, numCols)
-		resPointers = make([]interface{}, numCols)
+		rowValues    = make([]interface{}, numCols)
+		scanPointers = make([]interface{}, numCols)
 	)
 	for i := 0; i < numCols; i++ {
-		resPointers[i] = &resCols[i]
+		scanPointers[i] = &rowValues[i]
 	}
 
 	// Scan each row and write to the results backend.
 	for rows.Next() {
-		if err := rows.Scan(resPointers...); err != nil {
+		if err := rows.Scan(scanPointers...); err != nil {
 			return numRows, err
 		}
-		if err := w.WriteRow(resCols); err != nil {
+		if err := w.WriteRow(rowValues); err != nil {
 			return numRows, fmt.Errorf("error writing row to result backend: %v", err)
 		}
 

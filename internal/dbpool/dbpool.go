@@ -15,12 +15,13 @@ type Pool map[string]*sql.DB
 
 // Config is a DB's config for connecting.
 type Config struct {
-	Type           string        `koanf:"type"`
-	DSN            string        `koanf:"dsn"`
-	Unlogged       bool          `koanf:"unlogged"`
-	MaxIdleConns   int           `koanf:"max_idle"`
-	MaxActiveConns int           `koanf:"max_active"`
-	ConnectTimeout time.Duration `koanf:"connect_timeout"`
+	Type            string        `koanf:"type"`
+	DSN             string        `koanf:"dsn"`
+	Unlogged        bool          `koanf:"unlogged"`
+	MaxIdleConns    int           `koanf:"max_idle"`
+	MaxActiveConns  int           `koanf:"max_active"`
+	ConnectTimeout  time.Duration `koanf:"connect_timeout"`
+	ConnMaxLifetime time.Duration `koanf:"conn_max_lifetime"`
 }
 
 // New takes a map of named DB configurations and returns a named map
@@ -48,7 +49,7 @@ func NewConn(cfg Config) (*sql.DB, error) {
 
 	db.SetMaxIdleConns(cfg.MaxIdleConns)
 	db.SetMaxOpenConns(cfg.MaxActiveConns)
-	db.SetConnMaxLifetime(cfg.ConnectTimeout)
+	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 
 	// Ping database to check for connection issues.
 	if err = db.Ping(); err != nil {

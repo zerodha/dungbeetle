@@ -49,6 +49,7 @@ dsn = "postgres://user:password@host:5432/dbname?sslmode=disable"
 max_idle = 10
 max_active = 100
 connect_timeout = "10s"
+conn_max_lifetime = "300s"
 
 # Results table name. %s will be replaced by the job ID.
 results_table = "results_%s"
@@ -69,3 +70,4 @@ dsn = "user:password@tcp(host:3306)/dbname"
 max_idle = 10
 max_active = 100
 connect_timeout = "10s"
+conn_max_lifetime = "300s"

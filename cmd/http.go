@@ -13,14 +13,13 @@ import (
 // reValidateName represents the character classes allowed in a job ID.
 var reValidateName = regexp.MustCompile("(?i)^[a-z0-9-_:]+$")
 
-// GetTasksList returns the list of registered tasks. If the optional query
-// param ?sql=1 is passed, the full task details including raw SQL bodies are
-// returned. Without it, only the task names are returned.
+// GetTasksList returns the list of registered tasks. Pass ?sql=1 to include
+// the raw SQL body of each task in the response; omit it to get names only.
 func (a *Handlers) GetTasksList(w http.ResponseWriter, r *http.Request) {
 	tasks := a.co.GetTasks()
 
 	// Full task including SQL queries.
-	if r.URL.Query().Get("sql") != "" {
+	if r.URL.Query().Get("sql") == "1" {
 		a.sendResponse(w, tasks)
 		return
 	}

@@ -77,9 +77,18 @@ func (co *Core) Start(ctx context.Context, workerName string, concurrency int) e
 	return nil
 }
 
-// GetTasks returns the registered tasks map.
+// GetTasks returns a snapshot copy of the registered tasks map.
+// A copy is returned to avoid a data race between the HTTP handler goroutine
+// reading the map and LoadTasks writing it during startup.
 func (co *Core) GetTasks() Tasks {
-	return co.tasks
+	co.mu.RLock()
+	defer co.mu.RUnlock()
+
+	out := make(Tasks, len(co.tasks))
+	for k, v := range co.tasks {
+		out[k] = v
+	}
+	return out
 }
 
 // NewJob creates a new job out of a given task and registers it.

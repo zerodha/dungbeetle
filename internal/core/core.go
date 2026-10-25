@@ -540,7 +540,6 @@ func (co *Core) execJob(jobID, taskName, dbName string, ttl time.Duration, args 
 			return 0, fmt.Errorf("query preparation failed: %w", err)
 		}
 	} else {
-
 		if dbName != "" {
 			// Specific DB.
 			d, err := task.DBs.Get(dbName)
@@ -552,16 +551,16 @@ func (co *Core) execJob(jobID, taskName, dbName string, ttl time.Duration, args 
 			// Random DB.
 			_, db = task.DBs.GetRandom()
 		}
-	}
 
-	rows, err = db.QueryContext(ctx, task.Raw, args...)
-	if err != nil {
-		// Drivers report cancellation differently (eg: pq returns its own error), so check the context instead.
-		if ctx.Err() != nil {
-			return 0, errJobCanceled
+		rows, err = db.QueryContext(ctx, task.Raw, args...)
+		if err != nil {
+			// Drivers report cancellation differently (eg: pq returns its own error), so check the context instead.
+			if ctx.Err() != nil {
+				return 0, errJobCanceled
+			}
+
+			return 0, fmt.Errorf("task execution failed: %s: %v", task.Name, err)
 		}
-
-		return 0, fmt.Errorf("task execution failed: %s: %v", task.Name, err)
 	}
 	defer rows.Close()
 

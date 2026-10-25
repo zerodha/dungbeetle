@@ -110,12 +110,17 @@ func (co *Core) loadTasks(dir string) (Tasks, error) {
 			if _, ok := s.Tags["raw"]; ok {
 				typ = "raw"
 			} else {
-				// Prepare the statement against all tagged DBs just to be sure.
+				// Prepare the statement against all tagged DBs to validate the query.
+				// The first prepared statement is stored on the task and used at execution
+				// time; the remainder are prepared only for validation.
 				typ = "prepared"
 				for _, db := range srcDBs {
-					_, err := db.Prepare(s.Query)
+					s, err := db.Prepare(s.Query)
 					if err != nil {
 						return nil, fmt.Errorf("error preparing SQL query %s: %v", name, err)
+					}
+					if stmt == nil {
+						stmt = s
 					}
 				}
 			}

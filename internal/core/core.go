@@ -542,7 +542,9 @@ func (co *Core) execJob(jobID, taskName, dbName string, ttl time.Duration, args 
 		db = d
 	} else {
 		// Random DB.
-		_, db = task.DBs.GetRandom()
+		if _, db = task.DBs.GetRandom(); db == nil {
+			return 0, fmt.Errorf("task execution failed: %s: no source DBs available", task.Name)
+		}
 	}
 
 	rows, err = db.QueryContext(ctx, task.Raw, args...)

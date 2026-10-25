@@ -116,7 +116,9 @@ func (co *Core) loadTasks(dir string) (Tasks, error) {
 					if err != nil {
 						return nil, fmt.Errorf("error preparing SQL query %s: %v", name, err)
 					}
-					prepared.Close()
+					if err := prepared.Close(); err != nil {
+						co.lo.Error("error closing validation statement", "task", name, "error", err)
+					}
 				}
 			}
 

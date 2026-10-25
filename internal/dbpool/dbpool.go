@@ -48,7 +48,7 @@ func NewConn(cfg Config) (*sql.DB, error) {
 
 	db.SetMaxIdleConns(cfg.MaxIdleConns)
 	db.SetMaxOpenConns(cfg.MaxActiveConns)
-	db.SetConnMaxLifetime(time.Second * cfg.ConnectTimeout)
+	db.SetConnMaxLifetime(cfg.ConnectTimeout)
 
 	// Ping database to check for connection issues.
 	if err = db.Ping(); err != nil {

@@ -111,16 +111,13 @@ func (co *Core) loadTasks(dir string) (Tasks, error) {
 				typ = "raw"
 			} else {
 				// Prepare the statement against all tagged DBs to validate the query.
-				// The first prepared statement is stored on the task and used at execution
-				// time; the remainder are prepared only for validation.
+				// A prepared statement is connection-specific; since a task may have
+				// multiple source DBs, we validate against all of them but do not store
+				// the result — execJob uses the raw query string at runtime.
 				typ = "prepared"
 				for _, db := range srcDBs {
-					s, err := db.Prepare(s.Query)
-					if err != nil {
+					if _, err := db.Prepare(s.Query); err != nil {
 						return nil, fmt.Errorf("error preparing SQL query %s: %v", name, err)
-					}
-					if stmt == nil {
-						stmt = s
 					}
 				}
 			}

@@ -1,7 +1,6 @@
 package core
 
 import (
-	"database/sql"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -12,12 +11,11 @@ import (
 	"github.com/zerodha/dungbeetle/v2/internal/dbpool"
 )
 
-// Task represents an SQL query with its prepared and raw forms.
+// Task represents an SQL query task.
 type Task struct {
 	Name           string         `json:"name"`
 	Queue          string         `json:"queue"`
 	Conc           int            `json:"concurrency"`
-	Stmt           *sql.Stmt      `json:"-"`
 	Raw            string         `json:"raw,omitempty"`
 	DBs            dbpool.Pool    `json:"-"`
 	ResultBackends ResultBackends `json:"-"`
@@ -67,8 +65,6 @@ func (co *Core) loadTasks(dir string) (Tasks, error) {
 
 		for name, s := range q {
 			var (
-				stmt *sql.Stmt
-
 				// A map of DBs are attached to every query. This can be
 				// DBs tagged specifically to queries in the SQL file,
 				// or will be the map of all avaliable DBs. During execution
@@ -110,15 +106,17 @@ func (co *Core) loadTasks(dir string) (Tasks, error) {
 			if _, ok := s.Tags["raw"]; ok {
 				typ = "raw"
 			} else {
-				// Prepare the statement against all tagged DBs to validate the query.
-				// A prepared statement is connection-specific; since a task may have
-				// multiple source DBs, we validate against all of them but do not store
-				// the result — execJob uses the raw query string at runtime.
+				// Prepare against all tagged DBs to validate the SQL at load time.
+				// The *sql.Stmt is closed immediately after — it is connection-specific
+				// and cannot be shared across multiple source DBs. execJob uses the
+				// raw query string at runtime.
 				typ = "prepared"
 				for _, db := range srcDBs {
-					if _, err := db.Prepare(s.Query); err != nil {
+					prepared, err := db.Prepare(s.Query)
+					if err != nil {
 						return nil, fmt.Errorf("error preparing SQL query %s: %v", name, err)
 					}
+					prepared.Close()
 				}
 			}
 
@@ -141,7 +139,6 @@ func (co *Core) loadTasks(dir string) (Tasks, error) {
 				Name:           name,
 				Queue:          queue,
 				Conc:           conc,
-				Stmt:           stmt,
 				Raw:            s.Query,
 				DBs:            srcDBs,
 				ResultBackends: srcPool,

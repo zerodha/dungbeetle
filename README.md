@@ -68,6 +68,16 @@ A pre-compiled binary can be downloaded from the [releases](https://github.com/z
 ### 2) Configure
 Copy the `config.toml.sample` file as `config.toml` somewhere and edit the configuration values.
 
+Source (`[db.*]`) and result (`[results.*]`) databases are configured with a driver `type` and a `dsn`:
+
+| type | dsn |
+|------|-----|
+| `postgres` | `postgres://user:password@host:5432/dbname?sslmode=disable` |
+| `mysql` | `user:password@tcp(host:3306)/dbname` |
+| `clickhouse` | `tcp://host:9000?username=user&password=password&database=dbname` |
+
+ClickHouse v1 reads credentials and the database from query parameters. The `user@pass` format is not supported.
+
 ### 3) Setup tasks
 Write your SQL query tasks in `.sql` files in the `goyesql` format (as shown in the examples earlier) and put them in a directory somewhere.
 

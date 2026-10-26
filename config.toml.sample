@@ -41,18 +41,10 @@ max_idle = 10
 max_active = 100
 connect_timeout = "10s"
 
+# URL-encode ClickHouse query values (e.g. % as %25, + as %2B).
 [db.ch_db]
 type = "clickhouse"
-dsn = "clickhouse://default:@127.0.0.1:9000/default?sslmode=disable"
+dsn = "tcp://127.0.0.1:9000?username=default&password=&database=default"
 max_idle = 10
 max_active = 100
 connect_timeout = "10s"
-# host = "localhost"
-# port = 9000
-# db = "default"
-# user = "default" 
-# password = ""
-# autocommit = false
-# max_active = 100
-# max_idle = 100
-# connect_timeout = 60

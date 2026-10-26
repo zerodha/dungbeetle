@@ -30,7 +30,7 @@ func New(mp map[string]Config) (map[string]*sql.DB, error) {
 	for name, cfg := range mp {
 		db, err := NewConn(cfg)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("db %q: %w", name, err)
 		}
 
 		out[name] = db

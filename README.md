@@ -92,7 +92,7 @@ Starting the server runs a set of workers listening on a default job queue. It a
 | GET    | /groups/{groupID}      | Get the status of a job group and its jobs      |
 | DELETE | /jobs/{jobID}          | Deletes a pending job from the queue and immediately cancels its execution and frees the thread. Send a query param "purge=true" to delete completed jobs. Only the Go PostgreSQL driver cancels queries mid execution. MySQL server will keep continuing to execute the query. For MySQL, it's important to set `max_execution_time`.   |
 | DELETE | /groups/{groupID}          | Deletes a pending job from the queue and immediately cancels its execution and frees the thread. Send a query param "purge=true" to delete completed jobs. Only the Go PostgreSQL driver cancels queries mid execution. MySQL server will keep continuing to execute the query. For MySQL, it's important to set `max_execution_time`  |
-| GET    | /metrics               | Exposes Prometheus/VictoriaMetrics metrics for job queue statistics |
+| GET    | /metrics               | Exposes Prometheus metrics for jobs and queues |
 
 POST requests accept raw JSON bodies. The JSON params are listed below.
 
@@ -166,15 +166,30 @@ $ curl localhost:6060/tasks/get_profit_entries_by_date/jobs -H "Content-Type: ap
 
 ## Metrics
 
-Job queue metrics are exposed in the Prometheus/VictoriaMetrics exposition format on the same HTTP interface.
+Job queue metrics are exposed in the Prometheus exposition format at `/metrics` on the same HTTP interface.
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `dungbeetle_jobs_enqueued_total{task_name}` | counter | Jobs enqueued by this instance, including jobs in groups. |
+| `dungbeetle_jobs_running{task_name}` | gauge | Jobs currently executing on this instance. |
+| `dungbeetle_job_attempts_total{task_name,outcome}` | counter | Job execution attempts, with `outcome` as `success`, `error` or `canceled`. Every retry is a separate attempt. |
+| `dungbeetle_job_execution_duration_seconds{task_name}` | histogram | Time taken to run the query, read the rows, and write the results, including failed attempts. |
+| `dungbeetle_job_queue_wait_duration_seconds{task_name,queue}` | histogram | Time a job waited in the queue before its first attempt. ETA delays are not counted. |
+| `dungbeetle_queue_pending_jobs{queue}` | gauge | Runnable jobs waiting in the queue. Read from the broker on every scrape. |
+| `dungbeetle_worker_concurrency{queue}` | gauge | Configured worker concurrency for the queue on this instance. |
 
 ```
 $ curl localhost:6060/metrics
-dungbeetle_jobs_queued_total{task_name="get_profit_entries_by_date"} 42
+dungbeetle_jobs_enqueued_total{task_name="get_profit_entries_by_date"} 42
 dungbeetle_jobs_running{task_name="get_profit_entries_by_date"} 2
-dungbeetle_jobs_success_total{task_name="get_profit_entries_by_date"} 38
-dungbeetle_jobs_failed_total{task_name="get_profit_entries_by_date"} 2
+dungbeetle_job_attempts_total{task_name="get_profit_entries_by_date",outcome="success"} 38
+dungbeetle_job_attempts_total{task_name="get_profit_entries_by_date",outcome="error"} 2
+dungbeetle_queue_pending_jobs{queue="default"} 5
+dungbeetle_worker_concurrency{queue="default"} 10
+...
 ```
+
+Metrics are tracked per instance. Instances started with `--worker-only` don't run the HTTP server, so their metrics can't be scraped.
 
 ## Go API client
 `github.com/zerodha/dungbeetle/client` package can be used as a Go HTTP API client for DungBeetle.

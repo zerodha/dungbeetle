@@ -2,75 +2,106 @@ package core
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"log/slog"
 	"testing"
+	"time"
 
+	"github.com/VictoriaMetrics/metrics"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMetricName(t *testing.T) {
-	assert.Equal(t, "dungbeetle_jobs_queued_total", MetricName(metricJobsQueued))
+	tests := []struct {
+		name     string
+		labels   []string
+		expected string
+	}{
+		{
+			name:     "single label",
+			labels:   []string{"task_name", "get_profit_summary"},
+			expected: `dungbeetle_jobs_running{task_name="get_profit_summary"}`,
+		},
+		{
+			name:     "multiple labels",
+			labels:   []string{"task_name", "a", "queue", "default"},
+			expected: `dungbeetle_jobs_running{task_name="a",queue="default"}`,
+		},
+		{
+			name:     "quote",
+			labels:   []string{"task_name", `report"daily`},
+			expected: `dungbeetle_jobs_running{task_name="report\"daily"}`,
+		},
+		{
+			name:     "backslash",
+			labels:   []string{"task_name", `report\daily`},
+			expected: `dungbeetle_jobs_running{task_name="report\\daily"}`,
+		},
+		{
+			name:     "trailing backslash",
+			labels:   []string{"task_name", `report\`},
+			expected: `dungbeetle_jobs_running{task_name="report\\"}`,
+		},
+		{
+			name:     "newline",
+			labels:   []string{"task_name", "report\ndaily"},
+			expected: `dungbeetle_jobs_running{task_name="report\ndaily"}`,
+		},
+	}
 
-	assert.Equal(t, `dungbeetle_jobs_failed_total{task_name="get_profit_summary"}`,
-		MetricName(metricJobsFailed, Label{"task_name", "get_profit_summary"}))
-
-	assert.Equal(t, `dungbeetle_jobs_running{task_name="a",queue="default"}`,
-		MetricName(metricJobsRunning, Label{"task_name", "a"}, Label{"queue", "default"}))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := metricName(metricJobsRunning, tt.labels...)
+			assert.Equal(t, tt.expected, got)
+			assert.NoError(t, metrics.ValidateMetric(got))
+		})
+	}
 }
 
-func TestJobMetricsQueued(t *testing.T) {
-	co := New(Opt{}, nil, nil, slog.Default())
-
-	co.metrics.GetOrCreateCounter(MetricName(metricJobsQueued, Label{"task_name", "task_a"})).Inc()
-	co.metrics.GetOrCreateCounter(MetricName(metricJobsQueued, Label{"task_name", "task_a"})).Inc()
-	co.metrics.GetOrCreateCounter(MetricName(metricJobsQueued, Label{"task_name", "task_b"})).Inc()
-
-	assert.EqualValues(t, 2, co.metrics.GetOrCreateCounter(MetricName(metricJobsQueued, Label{"task_name", "task_a"})).Get())
-	assert.EqualValues(t, 1, co.metrics.GetOrCreateCounter(MetricName(metricJobsQueued, Label{"task_name", "task_b"})).Get())
+type stubBroker struct {
+	pending []string
+	err     error
 }
 
-func TestJobMetricsRunningGauge(t *testing.T) {
-	co := New(Opt{}, nil, nil, slog.Default())
+func (b stubBroker) Enqueue(context.Context, []byte, string) error { return nil }
 
-	running := co.metrics.GetOrCreateGauge(MetricName(metricJobsRunning, Label{"task_name", "task_a"}), nil)
+func (b stubBroker) EnqueueScheduled(context.Context, []byte, string, time.Time) error { return nil }
 
-	// Simulate two concurrent executions of the same task starting...
-	running.Inc()
-	running.Inc()
-	assert.EqualValues(t, 2, running.Get())
+func (b stubBroker) Consume(context.Context, chan []byte, string) {}
 
-	// ...and one finishing.
-	running.Dec()
-	assert.EqualValues(t, 1, running.Get())
+func (b stubBroker) GetPending(context.Context, string) ([]string, error) { return b.pending, b.err }
 
-	running.Dec()
-	assert.EqualValues(t, 0, running.Get())
-}
+func TestRegisterQueueMetrics(t *testing.T) {
+	tests := []struct {
+		name     string
+		broker   stubBroker
+		expected string
+	}{
+		{
+			name:     "pending jobs",
+			broker:   stubBroker{pending: []string{"a", "b", "c"}},
+			expected: `dungbeetle_queue_pending_jobs{queue="q"} 3`,
+		},
+		{
+			name:     "broker error",
+			broker:   stubBroker{err: errors.New("broker down")},
+			expected: `dungbeetle_queue_pending_jobs{queue="q"} NaN`,
+		},
+	}
 
-func TestJobMetricsSuccessAndFailed(t *testing.T) {
-	co := New(Opt{}, nil, nil, slog.Default())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			co := New(Opt{Broker: tt.broker}, nil, nil, slog.Default())
+			co.registerQueueMetrics("q", 4)
 
-	success := co.metrics.GetOrCreateCounter(MetricName(metricJobsSuccess, Label{"task_name", "task_a"}))
-	failed := co.metrics.GetOrCreateCounter(MetricName(metricJobsFailed, Label{"task_name", "task_a"}))
+			var buf bytes.Buffer
+			co.Metrics().WritePrometheus(&buf)
+			out := buf.String()
 
-	success.Inc()
-	failed.Inc()
-	failed.Inc()
-
-	assert.EqualValues(t, 1, success.Get())
-	assert.EqualValues(t, 2, failed.Get())
-}
-
-func TestMetricsWritePrometheus(t *testing.T) {
-	co := New(Opt{}, nil, nil, slog.Default())
-
-	co.metrics.GetOrCreateCounter(MetricName(metricJobsQueued, Label{"task_name", "task_a"})).Inc()
-	co.metrics.GetOrCreateGauge(MetricName(metricJobsRunning, Label{"task_name", "task_a"}), nil).Inc()
-
-	var buf bytes.Buffer
-	co.Metrics().WritePrometheus(&buf)
-	out := buf.String()
-
-	assert.Contains(t, out, `dungbeetle_jobs_queued_total{task_name="task_a"} 1`)
-	assert.Contains(t, out, `dungbeetle_jobs_running{task_name="task_a"} 1`)
+			require.Contains(t, out, tt.expected)
+			assert.Contains(t, out, `dungbeetle_worker_concurrency{queue="q"} 4`)
+		})
+	}
 }

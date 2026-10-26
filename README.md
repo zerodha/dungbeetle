@@ -76,9 +76,7 @@ Source (`[db.*]`) and result (`[results.*]`) databases are configured with a dri
 | `mysql` | `user:password@tcp(host:3306)/dbname` |
 | `clickhouse` | `tcp://host:9000?username=user&password=password&database=dbname` |
 
-Passwords inside a `dsn` must be URL-encoded (eg: `%` as `%25`, `+` as `%2B`), otherwise they are silently altered or break parsing.
-
-For ClickHouse, credentials and the database are read **only** from the `username`, `password` and `database` query params. `user:pass@` and `/dbname` in the URL are ignored and the connection falls back to the `default` user. On startup, a ClickHouse DSN without a host or with an invalid %-escape is rejected, and ignored parts are logged as warnings.
+ClickHouse v1 reads credentials and the database from query parameters. The `user@pass` format is not supported.
 
 ### 3) Setup tasks
 Write your SQL query tasks in `.sql` files in the `goyesql` format (as shown in the examples earlier) and put them in a directory somewhere.

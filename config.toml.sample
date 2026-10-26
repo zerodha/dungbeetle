@@ -41,9 +41,7 @@ max_idle = 10
 max_active = 100
 connect_timeout = "10s"
 
-# ClickHouse reads credentials and the database only from query params;
-# user:pass@ and /dbname in the URL are ignored. URL-encode the password
-# (eg: % as %25, + as %2B).
+# URL-encode ClickHouse query values (e.g. % as %25, + as %2B).
 [db.ch_db]
 type = "clickhouse"
 dsn = "tcp://127.0.0.1:9000?username=default&password=&database=default"

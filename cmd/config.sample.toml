@@ -62,6 +62,7 @@ results_table = "results_%s"
 # type = "postgres" dsn = "postgres://user:password@host:5432/dbname?sslmode=disable"
 # type = "mysql" dsn = "user:password@tcp(host:3306)/dbname"
 # type = "clickhouse" dsn = "tcp://host:9000?username=user&password=url-encoded-password&database=dbname"
+# IMPORTANT: clickhouse DSN requires passwords to be urlencoded if they have special characters.
 
 [db.my_db]
 type = "mysql"

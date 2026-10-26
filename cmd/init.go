@@ -169,13 +169,13 @@ func initCore(ko *koanf.Koanf) (*core.Core, error) {
 	}
 
 	// Connect to source DBs.
-	srcPool, err := dbpool.New(srcDBs)
+	srcPool, err := dbpool.New(srcDBs, log)
 	if err != nil {
 		return nil, err
 	}
 
 	// Connect to result DBs.
-	resPool, err := dbpool.New(resDBs)
+	resPool, err := dbpool.New(resDBs, log)
 	if err != nil {
 		return nil, err
 	}

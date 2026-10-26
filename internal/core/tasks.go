@@ -35,16 +35,13 @@ func (co *Core) LoadTasks(dirs []string) error {
 			return err
 		}
 
-		co.mu.Lock()
 		for t, q := range tasks {
 			if _, ok := co.tasks[t]; ok {
-				co.mu.Unlock()
 				return fmt.Errorf("duplicate task %s", t)
 			}
 
 			co.tasks[t] = q
 		}
-		co.mu.Unlock()
 
 		co.lo.Info("loaded tasks (SQL queries)", "count", len(tasks), "dir", d)
 	}

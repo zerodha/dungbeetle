@@ -19,7 +19,7 @@ func (a *Handlers) GetTasksList(w http.ResponseWriter, r *http.Request) {
 	tasks := a.co.GetTasks()
 
 	// Full task including SQL queries.
-	if r.URL.Query().Get("sql") == "" {
+	if r.URL.Query().Get("sql") != "false" {
 		a.sendResponse(w, tasks)
 		return
 	}

@@ -94,7 +94,7 @@ Starting the server runs a set of workers listening on a default job queue. It a
 ### Usage
 | Method | URI                    |                                                 |
 |--------|------------------------|-------------------------------------------------|
-| GET    | /tasks                 | Returns the list of registered SQL tasks        |
+| GET    | /tasks                 | Returns the list of registered SQL tasks. Pass `?sql=false` to only get names and not SQL.        |
 | POST   | /tasks/{taskName}/jobs | Schedules a job for a given task                |
 | GET    | /jobs/{jobID}          | Returns the status of a given job               |
 | GET    | /jobs/queue/{queue}    | Returns the list of all pending jobs in a queue |

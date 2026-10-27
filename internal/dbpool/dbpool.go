@@ -49,7 +49,13 @@ func NewConn(cfg Config) (*sql.DB, error) {
 
 	db.SetMaxIdleConns(cfg.MaxIdleConns)
 	db.SetMaxOpenConns(cfg.MaxActiveConns)
-	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+
+	lifetime := cfg.ConnMaxLifetime
+	if lifetime == 0 {
+		// Preserve legacy lifetime behaviour when no explicit lifetime is set.
+		lifetime = cfg.ConnectTimeout
+	}
+	db.SetConnMaxLifetime(lifetime)
 
 	// Ping database to check for connection issues.
 	if err = db.Ping(); err != nil {

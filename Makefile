@@ -53,9 +53,9 @@ test-mysql:
 # Use goreleaser to do a dry run producing local builds.
 .PHONY: release-dry
 release-dry:
-	goreleaser --parallelism 1 --rm-dist --snapshot --skip-validate --skip-publish
+	goreleaser release --parallelism 1 --clean --snapshot
 
 # Use goreleaser to build production releases and publish them.
 .PHONY: release
 release:
-	goreleaser --parallelism 1 --rm-dist --skip-validate
+	goreleaser release --parallelism 1 --clean

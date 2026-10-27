@@ -21,7 +21,7 @@ type Task struct {
 	ResultBackends ResultBackends `json:"-"`
 }
 
-// Tasks represents a map of prepared SQL statements.
+// Tasks maps names to SQL query tasks.
 type Tasks map[string]Task
 
 // LoadTasks loads SQL queries from all the .sql files in a given directory.
@@ -106,17 +106,14 @@ func (co *Core) loadTasks(dir string) (Tasks, error) {
 			if _, ok := s.Tags["raw"]; ok {
 				typ = "raw"
 			} else {
-				// Prepare against all tagged DBs to validate the SQL at load time.
-				// The *sql.Stmt is closed immediately after — it is connection-specific
-				// and cannot be shared across multiple source DBs. execJob uses the
-				// raw query string at runtime.
+				// Prepare and close statements to validate SQL against each source DB.
 				typ = "prepared"
 				for _, db := range srcDBs {
-					prepared, err := db.Prepare(s.Query)
+					stmt, err := db.Prepare(s.Query)
 					if err != nil {
 						return nil, fmt.Errorf("error preparing SQL query %s: %v", name, err)
 					}
-					if err := prepared.Close(); err != nil {
+					if err := stmt.Close(); err != nil {
 						co.lo.Error("error closing validation statement", "task", name, "error", err)
 					}
 				}

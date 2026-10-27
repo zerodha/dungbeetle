@@ -529,25 +529,22 @@ func (co *Core) execJob(jobID, taskName, dbName string, ttl time.Duration, args 
 	co.mu.Unlock()
 
 	var (
-		rows *sql.Rows
-		db   *sql.DB
-		err  error
+		db  *sql.DB
+		err error
 	)
 	if dbName != "" {
-		// Specific DB.
-		d, err := task.DBs.Get(dbName)
+		db, err = task.DBs.Get(dbName)
 		if err != nil {
 			return 0, fmt.Errorf("task execution failed: %s: %v", task.Name, err)
 		}
-		db = d
 	} else {
-		// Random DB.
-		if _, db = task.DBs.GetRandom(); db == nil {
-			return 0, fmt.Errorf("task execution failed: %s: no source DBs available", task.Name)
-		}
+		_, db = task.DBs.GetRandom()
+	}
+	if db == nil {
+		return 0, fmt.Errorf("task execution failed: %s: no source DBs available", task.Name)
 	}
 
-	rows, err = db.QueryContext(ctx, task.Raw, args...)
+	rows, err := db.QueryContext(ctx, task.Raw, args...)
 	if err != nil {
 		// Drivers report cancellation differently (eg: pq returns its own error), so check the context instead.
 		if ctx.Err() != nil {

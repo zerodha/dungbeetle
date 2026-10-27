@@ -1,7 +1,6 @@
 package core
 
 import (
-	"database/sql"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -12,18 +11,17 @@ import (
 	"github.com/zerodha/dungbeetle/v2/internal/dbpool"
 )
 
-// Task represents an SQL query with its prepared and raw forms.
+// Task represents an SQL query task.
 type Task struct {
 	Name           string         `json:"name"`
 	Queue          string         `json:"queue"`
 	Conc           int            `json:"concurrency"`
-	Stmt           *sql.Stmt      `json:"-"`
 	Raw            string         `json:"raw,omitempty"`
 	DBs            dbpool.Pool    `json:"-"`
 	ResultBackends ResultBackends `json:"-"`
 }
 
-// Tasks represents a map of prepared SQL statements.
+// Tasks maps names to SQL query tasks.
 type Tasks map[string]Task
 
 // LoadTasks loads SQL queries from all the .sql files in a given directory.
@@ -67,8 +65,6 @@ func (co *Core) loadTasks(dir string) (Tasks, error) {
 
 		for name, s := range q {
 			var (
-				stmt *sql.Stmt
-
 				// A map of DBs are attached to every query. This can be
 				// DBs tagged specifically to queries in the SQL file,
 				// or will be the map of all avaliable DBs. During execution
@@ -110,12 +106,15 @@ func (co *Core) loadTasks(dir string) (Tasks, error) {
 			if _, ok := s.Tags["raw"]; ok {
 				typ = "raw"
 			} else {
-				// Prepare the statement against all tagged DBs just to be sure.
+				// Prepare and close statements to validate SQL against each source DB.
 				typ = "prepared"
 				for _, db := range srcDBs {
-					_, err := db.Prepare(s.Query)
+					stmt, err := db.Prepare(s.Query)
 					if err != nil {
 						return nil, fmt.Errorf("error preparing SQL query %s: %v", name, err)
+					}
+					if err := stmt.Close(); err != nil {
+						co.lo.Error("error closing validation statement", "task", name, "error", err)
 					}
 				}
 			}
@@ -139,7 +138,6 @@ func (co *Core) loadTasks(dir string) (Tasks, error) {
 				Name:           name,
 				Queue:          queue,
 				Conc:           conc,
-				Stmt:           stmt,
 				Raw:            s.Query,
 				DBs:            srcDBs,
 				ResultBackends: srcPool,

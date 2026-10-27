@@ -95,7 +95,7 @@ func (a *Handlers) handlePostJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !reValidateName.Match([]byte(req.JobID)) {
+	if req.JobID != "" && !reValidateName.Match([]byte(req.JobID)) {
 		a.sendErrorResponse(w, "invalid characters in the `job_id`", http.StatusBadRequest)
 		return
 	}
@@ -145,6 +145,7 @@ func (a *Handlers) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	if err := a.co.CancelJob(jobID, purge); err != nil {
 		a.log.Error("could not cancel job", "error", err, "job_id", jobID)
 		a.sendErrorResponse(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	a.sendResponse(w, true)

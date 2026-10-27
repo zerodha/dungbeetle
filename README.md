@@ -180,22 +180,22 @@ Job queue metrics are exposed in the Prometheus exposition format at `/metrics` 
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `dungbeetle_jobs_enqueued_total{task_name}` | counter | Jobs enqueued by this instance, including jobs in groups. |
-| `dungbeetle_jobs_running{task_name}` | gauge | Jobs currently executing on this instance. |
-| `dungbeetle_job_attempts_total{task_name,outcome}` | counter | Job execution attempts, with `outcome` as `success`, `error` or `canceled`. Every retry is a separate attempt. |
-| `dungbeetle_job_execution_duration_seconds{task_name}` | histogram | Time taken to run the query, read the rows, and write the results, including failed attempts. |
-| `dungbeetle_job_queue_wait_duration_seconds{task_name,queue}` | histogram | Time a job waited in the queue before its first attempt. ETA delays are not counted. |
-| `dungbeetle_queue_pending_jobs{queue}` | gauge | Runnable jobs waiting in the queue. Read from the broker on every scrape. |
-| `dungbeetle_worker_concurrency{queue}` | gauge | Configured worker concurrency for the queue on this instance. |
+| `dbtl_jobs_enqueued_total{task_name}` | counter | Jobs enqueued by this instance, including jobs in groups. |
+| `dbtl_jobs_running{task_name}` | gauge | Jobs currently executing on this instance. |
+| `dbtl_job_attempts_total{task_name,outcome}` | counter | Job execution attempts, with `outcome` as `success`, `error` or `canceled`. Every retry is a separate attempt. |
+| `dbtl_job_execution_duration_seconds{task_name}` | histogram | Time taken to run the query, read the rows, and write the results, including failed attempts. |
+| `dbtl_job_queue_wait_duration_seconds{task_name,queue}` | histogram | Time a job waited in the queue before its first attempt. ETA delays are not counted. |
+| `dbtl_queue_pending_jobs{queue}` | gauge | Runnable jobs waiting in the queue. Read from the broker on every scrape. |
+| `dbtl_worker_concurrency{queue}` | gauge | Configured worker concurrency for the queue on this instance. |
 
 ```
 $ curl localhost:6060/metrics
-dungbeetle_jobs_enqueued_total{task_name="get_profit_entries_by_date"} 42
-dungbeetle_jobs_running{task_name="get_profit_entries_by_date"} 2
-dungbeetle_job_attempts_total{task_name="get_profit_entries_by_date",outcome="success"} 38
-dungbeetle_job_attempts_total{task_name="get_profit_entries_by_date",outcome="error"} 2
-dungbeetle_queue_pending_jobs{queue="default"} 5
-dungbeetle_worker_concurrency{queue="default"} 10
+dbtl_jobs_enqueued_total{task_name="get_profit_entries_by_date"} 42
+dbtl_jobs_running{task_name="get_profit_entries_by_date"} 2
+dbtl_job_attempts_total{task_name="get_profit_entries_by_date",outcome="success"} 38
+dbtl_job_attempts_total{task_name="get_profit_entries_by_date",outcome="error"} 2
+dbtl_queue_pending_jobs{queue="default"} 5
+dbtl_worker_concurrency{queue="default"} 10
 ...
 ```
 

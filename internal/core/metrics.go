@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Metric names, without the dungbeetle_ prefix.
+// Metric names, without the dbtl_ prefix.
 const (
 	metricJobsEnqueued     = "jobs_enqueued_total"
 	metricJobsRunning      = "jobs_running"
@@ -26,10 +26,10 @@ var durationBuckets = []float64{0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 
 var labelEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
 
 // metricName returns the prefixed metric name with labels given as key, value pairs.
-// E.g. metricName("jobs_running", "task_name", "a") -> `dungbeetle_jobs_running{task_name="a"}`
+// E.g. metricName("jobs_running", "task_name", "a") -> `dbtl_jobs_running{task_name="a"}`
 func metricName(name string, labels ...string) string {
 	var b strings.Builder
-	b.WriteString("dungbeetle_")
+	b.WriteString("dbtl_")
 	b.WriteString(name)
 	b.WriteByte('{')
 	for i := 0; i+1 < len(labels); i += 2 {

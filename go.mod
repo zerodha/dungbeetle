@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/ClickHouse/clickhouse-go v1.5.4
+	github.com/VictoriaMetrics/metrics v1.40.2
 	github.com/go-chi/chi/v5 v5.2.4
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/gofrs/uuid/v5 v5.3.2
@@ -39,6 +40,8 @@ require (
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
+	github.com/valyala/fastrand v1.1.0 // indirect
+	github.com/valyala/histogram v1.2.0 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect

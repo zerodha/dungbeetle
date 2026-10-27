@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/VictoriaMetrics/metrics"
 	uuid "github.com/gofrs/uuid/v5"
 	"github.com/kalbhor/tasqueue/v2"
 	"github.com/vmihailenco/msgpack"
@@ -47,6 +48,9 @@ type Core struct {
 	jobCtx map[string]context.CancelFunc
 	mu     sync.RWMutex
 
+	// Prometheus/VictoriaMetrics metrics.
+	metrics *metrics.Set
+
 	lo *slog.Logger
 }
 
@@ -59,8 +63,14 @@ func New(o Opt, srcDBs dbpool.Pool, res ResultBackends, lo *slog.Logger) *Core {
 		resultBackends: res,
 		jobCtx:         make(map[string]context.CancelFunc),
 		mu:             sync.RWMutex{},
+		metrics:        metrics.NewSet(),
 		lo:             lo,
 	}
+}
+
+// Metrics returns the core's Prometheus/VictoriaMetrics metrics set.
+func (co *Core) Metrics() *metrics.Set {
+	return co.metrics
 }
 
 // Start is a blocking function that spawns the queue workers and starts processing jobs.
@@ -94,6 +104,7 @@ func (co *Core) NewJob(j models.JobReq, taskName string) (models.JobResp, error)
 	if err != nil {
 		return models.JobResp{}, err
 	}
+	co.metrics.GetOrCreateCounter(metricName(metricJobsEnqueued, "task_name", taskName)).Inc()
 
 	return models.JobResp{
 		JobID:    uuid,
@@ -131,6 +142,8 @@ func (co *Core) NewJobGroup(req models.GroupReq) (models.GroupResp, error) {
 
 	jobs := make([]models.JobResp, len(sigs))
 	for i, r := range sigs {
+		co.metrics.GetOrCreateCounter(metricName(metricJobsEnqueued, "task_name", r.Task)).Inc()
+
 		jobs[i] = models.JobResp{
 			JobID:    r.Opts.ID,
 			TaskName: r.Task,
@@ -377,10 +390,16 @@ func (co *Core) makeJob(j models.JobReq, taskName string) (tasqueue.Job, error) 
 		args[i] = j.Args[i]
 	}
 
+	readyAt := time.Now()
+	if eta.After(readyAt) {
+		readyAt = eta
+	}
+
 	b, err := msgpack.Marshal(taskMeta{
-		Args: args,
-		DB:   j.DB,
-		TTL:  int(ttl),
+		Args:    args,
+		DB:      j.DB,
+		TTL:     int(ttl),
+		ReadyAt: readyAt,
 	})
 	if err != nil {
 		return tasqueue.Job{}, err
@@ -398,6 +417,9 @@ type taskMeta struct {
 	Args []interface{} `json:"args"`
 	DB   string        `json:"db"`
 	TTL  int           `json:"ttl"`
+
+	// ReadyAt is when the job became runnable (enqueue time or ETA). Zero for jobs enqueued by older versions.
+	ReadyAt time.Time `json:"ready_at"`
 }
 
 // initQueue creates and returns a distributed queue system (Tasqueue) and registers
@@ -418,17 +440,53 @@ func (co *Core) initQueue() (*tasqueue.Server, error) {
 	// Register every SQL ready tasks in the queue system as a job function.
 	for name := range co.tasks {
 		query := co.tasks[name]
-		err := qs.RegisterTask(string(name), func(b []byte, jctx tasqueue.JobCtx) error {
-			if _, err := qs.GetJob(context.Background(), jctx.Meta.ID); err != nil {
+		co.registerQueueMetrics(query.Queue, query.Conc)
+
+		var (
+			running   = co.metrics.GetOrCreateGauge(metricName(metricJobsRunning, "task_name", name), nil)
+			succeeded = co.metrics.GetOrCreateCounter(metricName(metricJobAttempts, "task_name", name, "outcome", "success"))
+			errored   = co.metrics.GetOrCreateCounter(metricName(metricJobAttempts, "task_name", name, "outcome", "error"))
+			canceled  = co.metrics.GetOrCreateCounter(metricName(metricJobAttempts, "task_name", name, "outcome", "canceled"))
+			execTime  = co.metrics.GetOrCreatePrometheusHistogramExt(metricName(metricJobExecDuration, "task_name", name), durationBuckets)
+		)
+
+		err := qs.RegisterTask(string(name), func(b []byte, jctx tasqueue.JobCtx) (err error) {
+			running.Inc()
+			defer func() {
+				running.Dec()
+				switch {
+				case err == nil:
+					succeeded.Inc()
+				// A deleted job's state is gone from the store, so GetJob returns ErrNotFound.
+				case errors.Is(err, errJobCanceled), errors.Is(err, tasqueue.ErrNotFound):
+					canceled.Inc()
+				default:
+					errored.Inc()
+				}
+			}()
+
+			if _, err = qs.GetJob(context.Background(), jctx.Meta.ID); err != nil {
 				return err
 			}
 
 			var args taskMeta
-			if err := msgpack.Unmarshal(b, &args); err != nil {
+			if err = msgpack.Unmarshal(b, &args); err != nil {
 				return fmt.Errorf("could not unmarshal args : %w", err)
 			}
 
-			count, err := co.execJob(jctx.Meta.ID, name, args.DB, time.Duration(args.TTL)*time.Second, args.Args, query)
+			// Retries are re-enqueued right after a failed attempt, so only the first attempt measures queue wait.
+			if jctx.Meta.Retried == 0 && !args.ReadyAt.IsZero() {
+				wait := max(time.Since(args.ReadyAt), 0)
+				co.metrics.GetOrCreatePrometheusHistogramExt(
+					metricName(metricJobQueueWait, "task_name", name, "queue", jctx.Meta.Queue),
+					durationBuckets,
+				).Update(wait.Seconds())
+			}
+
+			var count int64
+			start := time.Now()
+			count, err = co.execJob(jctx.Meta.ID, name, args.DB, time.Duration(args.TTL)*time.Second, args.Args, query)
+			execTime.UpdateDuration(start)
 			if err != nil {
 				return fmt.Errorf("could not execute job : %w", err)
 			}
@@ -446,11 +504,14 @@ func (co *Core) initQueue() (*tasqueue.Server, error) {
 	return qs, nil
 }
 
+// errJobCanceled is returned when a job is deleted or canceled before or during execution.
+var errJobCanceled = errors.New("the job was canceled")
+
 // execJob executes an SQL statement job and inserts the results into the result backend.
 func (co *Core) execJob(jobID, taskName, dbName string, ttl time.Duration, args []interface{}, task Task) (int64, error) {
 	// If the job's deleted, stop.
 	if _, err := co.GetJobStatus(jobID); err != nil {
-		return 0, errors.New("the job was canceled")
+		return 0, errJobCanceled
 	}
 
 	// Execute the query.
@@ -495,8 +556,9 @@ func (co *Core) execJob(jobID, taskName, dbName string, ttl time.Duration, args 
 
 	rows, err = db.QueryContext(ctx, task.Raw, args...)
 	if err != nil {
-		if err == context.Canceled {
-			return 0, errors.New("the job was canceled")
+		// Drivers report cancellation differently (eg: pq returns its own error), so check the context instead.
+		if ctx.Err() != nil {
+			return 0, errJobCanceled
 		}
 
 		return 0, fmt.Errorf("task execution failed: %s: %v", task.Name, err)

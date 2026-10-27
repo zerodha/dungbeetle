@@ -139,6 +139,7 @@ func initHTTP(h *Handlers, ko *koanf.Koanf) {
 	r.Get("/jobs/queue/{queue}", h.handleGetPendingJobs)
 	r.Post("/groups", h.handlePostJobGroup)
 	r.Get("/groups/{groupID}", h.handleGetGroupStatus)
+	r.Get("/metrics", h.handleGetMetrics)
 
 	log.Info("starting HTTP server", "address", ko.String("server"))
 	if err := http.ListenAndServe(ko.String("server"), r); err != nil {

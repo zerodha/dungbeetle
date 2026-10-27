@@ -168,6 +168,12 @@ func (a *Handlers) handleCancelGroupJob(w http.ResponseWriter, r *http.Request) 
 	a.sendResponse(w, true)
 }
 
+// handleGetMetrics exposes Prometheus/VictoriaMetrics metrics for scraping.
+func (a *Handlers) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain")
+	a.co.Metrics().WritePrometheus(w)
+}
+
 // sendResponse sends a JSON envelope to the HTTP response.
 func (a *Handlers) sendResponse(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

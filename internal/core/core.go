@@ -341,6 +341,13 @@ func (co *Core) makeJob(j models.JobReq, taskName string) (tasqueue.Job, error) 
 		return tasqueue.Job{}, fmt.Errorf("unrecognized task: %s", taskName)
 	}
 
+	// Validate the ID here and not only in the HTTP handlers, as it ends up in
+	// the name of the job's results table and in queue keys. Every path that
+	// creates a job (single or group) goes through this function.
+	if err := models.ValidateJobID(j.JobID); err != nil {
+		return tasqueue.Job{}, err
+	}
+
 	// Check if a job with the same ID is already running.
 	msg, err := co.q.GetJob(context.Background(), j.JobID)
 	if err != nil && !errors.Is(err, tasqueue.ErrNotFound) {

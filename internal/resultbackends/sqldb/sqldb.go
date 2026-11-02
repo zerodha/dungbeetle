@@ -19,6 +19,12 @@ import (
 const (
 	dbTypePostgres = "postgres"
 	dbTypeMysql    = "mysql"
+
+	// maxTableNameLen is the longest results table name that is safe on both
+	// supported backends. Postgres silently truncates identifiers at 63 bytes,
+	// which would make two long job IDs share one results table, and MySQL
+	// rejects identifiers past 64 bytes.
+	maxTableNameLen = 63
 )
 
 // Opt represents SQL DB backend's options.
@@ -87,6 +93,11 @@ func NewSQLBackend(db *sql.DB, opt Opt, lo *slog.Logger) (*SqlDB, error) {
 // A new instance should be acquired for every individual job result
 // to be written to the backend and then thrown away.
 func (s *SqlDB) NewResultSet(jobID, taskName string, ttl time.Duration) (models.ResultSet, error) {
+	tbl := fmt.Sprintf(s.opt.ResultsTable, jobID)
+	if len(tbl) > maxTableNameLen {
+		return nil, fmt.Errorf("results table name '%s' exceeds %d bytes", tbl, maxTableNameLen)
+	}
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
@@ -96,7 +107,7 @@ func (s *SqlDB) NewResultSet(jobID, taskName string, ttl time.Duration) (models.
 		jobID:    jobID,
 		taskName: taskName,
 		backend:  s,
-		tbl:      fmt.Sprintf(s.opt.ResultsTable, jobID),
+		tbl:      tbl,
 		tx:       tx,
 	}, nil
 }
@@ -113,27 +124,6 @@ func (w *SQLDBResultSet) RegisterColTypes(cols []string, colTypes []*sql.ColumnT
 
 	w.cols = make([]string, len(cols))
 	copy(w.cols, cols)
-
-	// Create the insert statement.
-	// INSERT INTO xxx (col1, col2...) VALUES.
-	var (
-		colNameHolder = make([]string, len(cols))
-		colValHolder  = make([]string, len(cols))
-	)
-	for i := range w.cols {
-		colNameHolder[i] = fmt.Sprintf(`"%s"`, w.cols[i])
-
-		// This will be filled by the driver.
-		if w.backend.opt.DBType == dbTypePostgres {
-			// Postgres placeholders are $1, $2 ...
-			colValHolder[i] = fmt.Sprintf("$%d", i+1)
-		} else {
-			colValHolder[i] = "?"
-		}
-	}
-
-	ins := fmt.Sprintf(`INSERT INTO "%%s" (%s) `, strings.Join(colNameHolder, ","))
-	ins += fmt.Sprintf("VALUES (%s)", strings.Join(colValHolder, ","))
 
 	w.backend.schemaMutex.Lock()
 	w.backend.resTableSchemas[w.taskName] = w.backend.createTableSchema(cols, colTypes)
@@ -176,11 +166,12 @@ func (w *SQLDBResultSet) WriteCols(cols []string) error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(fmt.Sprintf(rSchema.dropTable, w.tbl)); err != nil {
+	tbl := w.backend.quoteIdentifier(w.tbl)
+	if _, err := tx.Exec(fmt.Sprintf(rSchema.dropTable, tbl)); err != nil {
 		return err
 	}
 
-	if _, err := tx.Exec(fmt.Sprintf(rSchema.createTable, w.tbl)); err != nil {
+	if _, err := tx.Exec(fmt.Sprintf(rSchema.createTable, tbl)); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -201,7 +192,7 @@ func (w *SQLDBResultSet) WriteRow(row []interface{}) error {
 		return fmt.Errorf("column types for '%s' have not been registered", w.taskName)
 	}
 
-	_, err := w.tx.Exec(fmt.Sprintf(rSchema.insertRow, w.tbl), row...)
+	_, err := w.tx.Exec(fmt.Sprintf(rSchema.insertRow, w.backend.quoteIdentifier(w.tbl)), row...)
 
 	return err
 }
@@ -294,21 +285,29 @@ func (s *SqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 		unlogged = "UNLOGGED"
 	}
 
+	// The remaining `%s` in each statement is the results table name. It is
+	// left bare here and must be filled with quoteIdentifier(tbl) by the
+	// caller, so that the name is escaped as it is quoted. Quoting the
+	// placeholder itself would put the table name inside the quotes
+	// unescaped, letting a quote character in it end the identifier early.
 	return insertSchema{
-		dropTable:   fmt.Sprintf("DROP TABLE IF EXISTS %s;", s.quoteIdentifier("%s")),
-		createTable: fmt.Sprintf("CREATE %s TABLE IF NOT EXISTS %s (%s);", unlogged, s.quoteIdentifier("%s"), strings.Join(fields, ",")),
-		insertRow: fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
-			s.quoteIdentifier("%s"),
+		dropTable:   "DROP TABLE IF EXISTS %s;",
+		createTable: fmt.Sprintf("CREATE %s TABLE IF NOT EXISTS %%s (%s);", unlogged, strings.Join(fields, ",")),
+		insertRow: fmt.Sprintf("INSERT INTO %%s (%s) VALUES (%s)",
 			strings.Join(colNameHolder, ","),
 			strings.Join(colValHolder, ",")),
 	}
 }
 
-// quoteIdentifier quotes an identifier (table or column name) based on the database type
+// quoteIdentifier quotes an identifier (table or column name) based on the
+// database type. The quote character is doubled inside the name, which is how
+// both backends escape it, so that a name containing a quote cannot end the
+// identifier and append SQL of its own.
 func (s *SqlDB) quoteIdentifier(name string) string {
 	if s.opt.DBType == dbTypePostgres {
-		return fmt.Sprintf(`"%s"`, name)
+		return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 	}
-	// MySQL uses backticks
-	return fmt.Sprintf("`%s`", name)
+
+	// MySQL uses backticks.
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
 }

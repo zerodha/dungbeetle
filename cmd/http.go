@@ -3,15 +3,11 @@ package main
 import (
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/zerodha/dungbeetle/v2/models"
 )
-
-// reValidateName represents the character classes allowed in a job ID.
-var reValidateName = regexp.MustCompile("(?i)^[a-z0-9-_:]+$")
 
 // GetTasksList returns the jobs list. If the optional query param ?sql=1
 // is passed, it returns the raw SQL bodies as well.
@@ -95,8 +91,8 @@ func (a *Handlers) handlePostJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.JobID != "" && !reValidateName.Match([]byte(req.JobID)) {
-		a.sendErrorResponse(w, "invalid characters in the `job_id`", http.StatusBadRequest)
+	if err := models.ValidateJobID(req.JobID); err != nil {
+		a.sendErrorResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -122,6 +118,13 @@ func (a *Handlers) handlePostJobGroup(w http.ResponseWriter, r *http.Request) {
 		a.log.Error("error parsing JSON body", "error", err, "request", req)
 		a.sendErrorResponse(w, "error parsing JSON body", http.StatusBadRequest)
 		return
+	}
+
+	for _, j := range req.Jobs {
+		if err := models.ValidateJobID(j.JobID); err != nil {
+			a.sendErrorResponse(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 
 	out, err := a.co.NewJobGroup(req)

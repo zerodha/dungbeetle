@@ -15,9 +15,9 @@ func TestValidateJobID(t *testing.T) {
 		{"alphanumeric", "myjob123", true},
 		{"dash underscore colon", "my-job_1:a", true},
 		{"uuid form", "job_2f1a7c6e-3b9d-4f2a-8c11-5d6e7f809a1b", true},
-		{"at max length", strings.Repeat("a", MaxJobIDLen), true},
+		{"at max length", strings.Repeat("a", maxJobIDLen), true},
 
-		{"over max length", strings.Repeat("a", MaxJobIDLen+1), false},
+		{"over max length", strings.Repeat("a", maxJobIDLen+1), false},
 		{"double quote breaks postgres identifier", `a", "victim`, false},
 		{"backtick breaks mysql identifier", "a`, `victim", false},
 		{"stacked statement", `s"; DROP TABLE victim; COMMIT; --`, false},

@@ -12,11 +12,11 @@ import (
 // SQL identifier.
 var reValidateJobID = regexp.MustCompile("(?i)^[a-z0-9-_:]+$")
 
-// MaxJobIDLen is the maximum length of a job ID. Postgres truncates identifiers
+// maxJobIDLen is the maximum length of a job ID. Postgres truncates identifiers
 // at 63 bytes and MySQL rejects them past 64, so two long job IDs sharing a
 // prefix would otherwise map to the same results table. 55 leaves room for the
 // default `results_%s` table name template.
-const MaxJobIDLen = 55
+const maxJobIDLen = 55
 
 // ValidateJobID validates a caller-supplied job ID. An empty ID is valid, as
 // the server generates one in that case.
@@ -25,8 +25,8 @@ func ValidateJobID(id string) error {
 		return nil
 	}
 
-	if len(id) > MaxJobIDLen {
-		return fmt.Errorf("`job_id` cannot be longer than %d characters", MaxJobIDLen)
+	if len(id) > maxJobIDLen {
+		return fmt.Errorf("`job_id` cannot be longer than %d characters", maxJobIDLen)
 	}
 
 	if !reValidateJobID.MatchString(id) {

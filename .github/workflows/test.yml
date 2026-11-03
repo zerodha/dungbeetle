@@ -17,50 +17,9 @@ permissions:
 
 jobs:
   test:
-    strategy:
-      matrix:
-        platform: [ubuntu-latest]
-    runs-on: ${{ matrix.platform }}
+    runs-on: ubuntu-latest
     timeout-minutes: 20
 
-    services:
-      redis:
-        image: redis
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-
-      postgres:
-        image: postgres:15-alpine
-        env:
-          POSTGRES_PASSWORD: testPass
-          POSTGRES_USER: testUser
-          POSTGRES_DB: testDB
-        options: >-
-          --health-cmd "pg_isready -h 127.0.0.1 -U testUser -d testDB"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-      db:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: rootpassword
-          MYSQL_DATABASE: mydb
-          MYSQL_USER: user
-          MYSQL_PASSWORD: userpassword
-        ports:
-          - "3306:3306"
-        options: >-
-          --health-cmd "mysql --protocol=TCP -h 127.0.0.1 -u root --password=rootpassword -e 'SELECT 1'"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -70,14 +29,5 @@ jobs:
       with:
         go-version-file: go.mod
 
-    - name: Install Dependencies
-      run:  sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates postgresql-client mysql-client curl
-
-    - name: Add postgres tables
-      run: PGPASSWORD=testPass psql -U testUser -h localhost -p 5432 -d testDB -c 'CREATE TABLE entries (id BIGSERIAL PRIMARY KEY, amount REAL, user_id VARCHAR(6), entry_date DATE, timestamp TIMESTAMP)';
-
-    - name: Add mysql tables
-      run: mysql -h localhost -P 3306 -u root -p mydb --protocol=TCP --password=rootpassword -e 'CREATE TABLE entries (id BIGINT PRIMARY KEY, amount REAL, user_id VARCHAR(6), entry_date DATE, timestamp TIMESTAMP)'
-
-    - name: Run PostgreSQL and MySQL tests
-      run: ./scripts/test.sh run --ci
+    - name: Run tests
+      run: make test test-integration

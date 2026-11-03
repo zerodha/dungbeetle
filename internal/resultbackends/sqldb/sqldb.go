@@ -87,6 +87,13 @@ func NewSQLBackend(db *sql.DB, opt Opt, lo *slog.Logger) (*SqlDB, error) {
 // A new instance should be acquired for every individual job result
 // to be written to the backend and then thrown away.
 func (s *SqlDB) NewResultSet(jobID, taskName string, ttl time.Duration) (models.ResultSet, error) {
+	tbl := fmt.Sprintf(s.opt.ResultsTable, jobID)
+
+	// PostgreSQL truncates long names, which can result in ID collisions.
+	if s.opt.DBType == dbTypePostgres && len(tbl) > 63 {
+		return nil, errors.New("results table name exceeds 63 bytes")
+	}
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
@@ -96,7 +103,7 @@ func (s *SqlDB) NewResultSet(jobID, taskName string, ttl time.Duration) (models.
 		jobID:    jobID,
 		taskName: taskName,
 		backend:  s,
-		tbl:      fmt.Sprintf(s.opt.ResultsTable, jobID),
+		tbl:      tbl,
 		tx:       tx,
 	}, nil
 }
@@ -176,11 +183,11 @@ func (w *SQLDBResultSet) WriteCols(cols []string) error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(fmt.Sprintf(rSchema.dropTable, w.tbl)); err != nil {
+	if _, err := tx.Exec(strings.Replace(rSchema.dropTable, "%s", w.backend.quoteIdentifier(w.tbl), 1)); err != nil {
 		return err
 	}
 
-	if _, err := tx.Exec(fmt.Sprintf(rSchema.createTable, w.tbl)); err != nil {
+	if _, err := tx.Exec(strings.Replace(rSchema.createTable, "%s", w.backend.quoteIdentifier(w.tbl), 1)); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -201,7 +208,7 @@ func (w *SQLDBResultSet) WriteRow(row []interface{}) error {
 		return fmt.Errorf("column types for '%s' have not been registered", w.taskName)
 	}
 
-	_, err := w.tx.Exec(fmt.Sprintf(rSchema.insertRow, w.tbl), row...)
+	_, err := w.tx.Exec(strings.Replace(rSchema.insertRow, "%s", w.backend.quoteIdentifier(w.tbl), 1), row...)
 
 	return err
 }
@@ -295,10 +302,9 @@ func (s *SqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 	}
 
 	return insertSchema{
-		dropTable:   fmt.Sprintf("DROP TABLE IF EXISTS %s;", s.quoteIdentifier("%s")),
-		createTable: fmt.Sprintf("CREATE %s TABLE IF NOT EXISTS %s (%s);", unlogged, s.quoteIdentifier("%s"), strings.Join(fields, ",")),
-		insertRow: fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
-			s.quoteIdentifier("%s"),
+		dropTable:   "DROP TABLE IF EXISTS %s;",
+		createTable: fmt.Sprintf("CREATE %s TABLE IF NOT EXISTS %%s (%s);", unlogged, strings.Join(fields, ",")),
+		insertRow: fmt.Sprintf("INSERT INTO %%s (%s) VALUES (%s)",
 			strings.Join(colNameHolder, ","),
 			strings.Join(colValHolder, ",")),
 	}
@@ -307,8 +313,9 @@ func (s *SqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 // quoteIdentifier quotes an identifier (table or column name) based on the database type
 func (s *SqlDB) quoteIdentifier(name string) string {
 	if s.opt.DBType == dbTypePostgres {
-		return fmt.Sprintf(`"%s"`, name)
+		return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 	}
+
 	// MySQL uses backticks
-	return fmt.Sprintf("`%s`", name)
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
 }

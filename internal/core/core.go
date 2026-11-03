@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strconv"
 	"sync"
 	"time"
@@ -17,6 +18,8 @@ import (
 	"github.com/zerodha/dungbeetle/v2/internal/dbpool"
 	"github.com/zerodha/dungbeetle/v2/models"
 )
+
+var reJobID = regexp.MustCompile(`^[a-zA-Z0-9_:-]+$`)
 
 // Opt represents core options.
 type Opt struct {
@@ -336,6 +339,10 @@ func (co *Core) CancelJobGroup(groupID string, purge bool) error {
 
 // makeJob creates and returns a tasqueue job (tasqueue.Job{}) from the given job params.
 func (co *Core) makeJob(j models.JobReq, taskName string) (tasqueue.Job, error) {
+	if j.JobID != "" && !reJobID.MatchString(j.JobID) {
+		return tasqueue.Job{}, errors.New("invalid characters in the `job_id`")
+	}
+
 	task, ok := co.tasks[taskName]
 	if !ok {
 		return tasqueue.Job{}, fmt.Errorf("unrecognized task: %s", taskName)

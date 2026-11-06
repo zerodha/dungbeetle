@@ -57,14 +57,14 @@ func (co *Core) registerQueueMetrics(queue string, conc int) {
 		return float64(conc)
 	})
 
-	// Evaluated on every scrape. The broker only lists runnable jobs, so ETA-scheduled ones aren't counted.
+	// Evaluated on every scrape. The broker only counts runnable jobs, so ETA-scheduled ones aren't counted.
 	co.metrics.GetOrCreateGauge(metricName(metricQueuePendingJobs, "queue", queue), func() float64 {
-		jobs, err := co.opt.Broker.GetPending(context.Background(), queue)
+		n, err := co.opt.Broker.GetPendingCount(context.Background(), queue)
 		if err != nil {
 			co.lo.Error("error fetching pending jobs for metrics", "queue", queue, "error", err)
 			return math.NaN()
 		}
 
-		return float64(len(jobs))
+		return float64(n)
 	})
 }

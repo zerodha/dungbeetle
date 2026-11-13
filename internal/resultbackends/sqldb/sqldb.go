@@ -264,7 +264,7 @@ func (s *SqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 		case "INT2", "INT4", "INT8", "TINYINT", "SMALLINT", "INT", "MEDIUMINT", "BIGINT":
 			typ = "BIGINT"
 		case "FLOAT4", "FLOAT8", "DECIMAL", "FLOAT", "DOUBLE", "NUMERIC":
-			typ = "DECIMAL"
+			typ = decimalColumnType(s.opt.DBType, typ, colTypes[i])
 		case "TIMESTAMP", "DATETIME":
 			typ = "TIMESTAMP"
 		case "DATE":
@@ -308,6 +308,25 @@ func (s *SqlDB) createTableSchema(cols []string, colTypes []*sql.ColumnType) ins
 			strings.Join(colNameHolder, ","),
 			strings.Join(colValHolder, ",")),
 	}
+}
+
+// decimalColumnType maps floating and exact numeric columns onto DECIMAL.
+// A bare DECIMAL on MySQL is DECIMAL(10,0) and drops the fractional part, so
+// DECIMAL and NUMERIC columns keep a precision and scale when the driver
+// reports one MySQL will accept (precision 1-65, scale 0-30, scale <= precision).
+// FLOAT and DOUBLE stay bare: their DecimalSize is not a fixed-point spec.
+// PostgreSQL is left bare because an unqualified DECIMAL there keeps scale.
+func decimalColumnType(dbType, src string, col *sql.ColumnType) string {
+	if dbType != dbTypeMysql || (src != "DECIMAL" && src != "NUMERIC") {
+		return "DECIMAL"
+	}
+
+	prec, scale, ok := col.DecimalSize()
+	if !ok || prec < 1 || prec > 65 || scale < 0 || scale > 30 || scale > prec {
+		return "DECIMAL"
+	}
+
+	return fmt.Sprintf("DECIMAL(%d,%d)", prec, scale)
 }
 
 // quoteIdentifier quotes an identifier (table or column name) based on the database type

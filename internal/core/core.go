@@ -348,14 +348,16 @@ func (co *Core) makeJob(j models.JobReq, taskName string) (tasqueue.Job, error) 
 		return tasqueue.Job{}, fmt.Errorf("unrecognized task: %s", taskName)
 	}
 
-	// Check if a job with the same ID is already running.
-	msg, err := co.q.GetJob(context.Background(), j.JobID)
-	if err != nil && !errors.Is(err, tasqueue.ErrNotFound) {
-		return tasqueue.Job{}, fmt.Errorf("error fetching job status (id='%s')", j.JobID)
-	}
+	if j.JobID != "" {
+		// Check if a job with the same ID is already running.
+		msg, err := co.q.GetJob(context.Background(), j.JobID)
+		if err != nil && !errors.Is(err, tasqueue.ErrNotFound) {
+			return tasqueue.Job{}, fmt.Errorf("error fetching job status (id='%s')", j.JobID)
+		}
 
-	if msg.Status == tasqueue.StatusProcessing || msg.Status == tasqueue.StatusRetrying {
-		return tasqueue.Job{}, fmt.Errorf("job '%s' is already running", j.JobID)
+		if msg.Status == tasqueue.StatusProcessing || msg.Status == tasqueue.StatusRetrying {
+			return tasqueue.Job{}, fmt.Errorf("job '%s' is already running", j.JobID)
+		}
 	}
 
 	// If there's no job_id, we generate one. This is because
